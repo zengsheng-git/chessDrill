@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "杀法练习",
+        "title": "象棋研习",
         "width": 440,
         "height": 800,
         "minWidth": 340,
@@ -27,7 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["resources/tiku", "resources/libs"],
+    "resources": ["resources/tiku", "resources/games", "resources/libs"],
     "windows": {
       "wix": {
         "language": "zh-CN"

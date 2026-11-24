@@ -1,7 +1,7 @@
 [package]
 name = "chessdrill"
 version = "0.1.0"
-description = "杀法练习 - 中国象棋残局刷题"
+description = "杀法练习 - 中国象棋残局刷题与棋谱复盘"
 edition = "2021"
 
 [lib]
@@ -15,6 +15,19 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 复盘模块: 录屏截帧 / 图像缓冲 / PGN 另存为对话框 / 回收站删除 / 天天象棋拉谱
+xcap = "0.5"
+ndarray = "0.16"
+image = "0.25"
+tauri-plugin-dialog = "2"
+# 删除棋谱时移入系统回收站(而非直接删文件), 误删可恢复
+trash = "5"
+# 天天象棋分享链接拉谱: 调爱棋谱(秀棋谱)公开接口
+ureq = { version = "2", features = ["json"] }
+
+# ONNX Runtime 仅在 Windows 下启用, 运行时动态加载 onnxruntime.dll, 不参与编译链接
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.9", default-features = false, features = ["ndarray", "load-dynamic"] }
 
 [profile.dev]
 incremental = true
