@@ -76,7 +76,8 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
   const atStart = path.length === 0;
   const atEnd = !!node && node.children.length === 0;
 
-  // 多分支局面: 候选着法以绿色箭头标注在棋盘上, 点击落点(或数字键)选择
+  // 多分支局面: 全部候选以绿色箭头标注(中段带编号), 点编号按钮/数字键选择;
+  // 落点点击仅在唯一候选匹配时生效(同落点多候选时用编号按钮, 避免歧义)
   const options = hasGame
     ? path.length === 0
       ? game!.moves
@@ -86,8 +87,10 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
   const branchOptions = branchMode ? options.map((o) => ({ from: o.from, to: o.to })) : [];
 
   const pickBySquare = (pos: Pos) => {
-    const idx = options.findIndex((o) => o.to.x === pos.x && o.to.y === pos.y);
-    if (idx >= 0) pickBranch(idx);
+    const matches = options
+      .map((o, i) => ({ o, i }))
+      .filter(({ o }) => o.to.x === pos.x && o.to.y === pos.y);
+    if (matches.length === 1) pickBranch(matches[0]!.i);
   };
   const previewBySquare = (pos: Pos | null) => {
     if (!pos) {
@@ -110,10 +113,10 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
         }
         return;
       }
-      // 多分支局面: 数字键 1-9 快速选择候选
+      // 多分支局面: 数字键 1-9 直接选择对应候选
       if (branchMode && /^[1-9]$/.test(e.key)) {
         e.preventDefault();
-        pickBranch(Number(e.key) - 1);
+        pickBranch(Math.min(Number(e.key) - 1, options.length - 1));
         return;
       }
       switch (e.key) {
@@ -149,7 +152,7 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goNext, goPrev, switchVariation, goToStart, goToEnd, toggleFlip, branchMode, pickBranch, infoOpen]);
+  }, [goNext, goPrev, switchVariation, goToStart, goToEnd, toggleFlip, branchMode, options.length, pickBranch, infoOpen]);
 
   // 棋盘区滚轮前后翻着法(Ctrl+滚轮留给全局缩放)
   const boardAreaRef = useRef<HTMLDivElement | null>(null);
@@ -322,6 +325,26 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
                 📝谱
               </button>
             </div>
+            {/* 分支局面: 编号按钮行, 点编号选走对应箭头候选 */}
+            {branchMode && (
+              <div className="flex gap-1 pt-1">
+                {options.slice(0, 9).map((opt, i) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => pickBranch(i)}
+                    className={`${BTN} border-emerald-600/50 font-semibold text-emerald-700`}
+                    title={`走 ${opt.notation}（数字键 ${i + 1}）`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+                {options.length > 9 && (
+                  <span className="flex flex-1 items-center justify-end px-1 text-[10px] text-ink-400">
+                    其余 {options.length - 9} 个候选用着法树选择
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

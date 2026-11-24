@@ -15,9 +15,9 @@ interface BoardProps {
   flipped: boolean;
   lastMove: { from: Pos; to: Pos } | null;
   previewMove?: { from: Pos; to: Pos } | null;
-  /** 多分支局面候选着法: 绿色箭头标注(与练习提示箭头同款), 点击落点选择 */
+  /** 多分支候选: 全部以绿色箭头标注(与练习提示箭头同款), 箭头中段带编号徽标 */
   branchOptions?: { from: Pos; to: Pos }[];
-  /** 点击棋盘格子(仅 branchOptions 非空时启用) */
+  /** 点击棋盘格子(仅 branchOptions 非空时启用, 唯一匹配的落点才生效) */
   onSquareClick?: (pos: Pos) => void;
   /** 悬停棋盘格子(用于候选落点预览), 移出传 null */
   onSquareHover?: (pos: Pos | null) => void;
@@ -291,20 +291,25 @@ export default function ReplayBoard({
         );
       })}
 
-      {/* 多分支候选: 绿色箭头标注(与练习提示箭头同款) */}
+      {/* 分支候选: 全部绿色箭头(与练习提示箭头同款) */}
       {(branchOptions ?? []).map((opt, i) => drawArrow(opt.from, opt.to, `b${i}`))}
 
-      {/* 候选序号徽标: 落点右上角 1/2/3…, 数字键或点击落点选择 */}
+      {/* 编号徽标: 画在箭头中段(45% 处), 同落点的多支箭头徽标互不遮挡 */}
       {(branchOptions ?? []).map((opt, i) => {
         if (i >= 9) return null;
-        const cx = px(opt.to.x);
-        const cy = py(opt.to.y);
+        const x1 = px(opt.from.x);
+        const y1 = py(opt.from.y);
+        const x2 = px(opt.to.x);
+        const y2 = py(opt.to.y);
+        if (Math.hypot(x2 - x1, y2 - y1) < CELL / 2) return null;
+        const mx = x1 + (x2 - x1) * 0.45;
+        const my = y1 + (y2 - y1) * 0.45;
         return (
           <g key={`bn${i}`} pointerEvents="none">
-            <circle cx={cx + 18} cy={cy - 18} r={9.5} fill="#2e9e5b" opacity="0.95" />
+            <circle cx={mx} cy={my} r="11" fill="#2e9e5b" stroke="#ffffff" strokeWidth="1.5" opacity="0.95" />
             <text
-              x={cx + 18}
-              y={cy - 17.5}
+              x={mx}
+              y={my + 0.5}
               fontSize="12"
               fontWeight="700"
               fill="#ffffff"
