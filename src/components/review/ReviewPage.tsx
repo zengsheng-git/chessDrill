@@ -9,6 +9,8 @@ import FileList from "./FileList";
 import RecordPanel from "./RecordPanel";
 import AnalysisPanel from "./AnalysisPanel";
 import TiantianDialog from "./TiantianDialog";
+import VideoExportDialog from "../video/VideoExportDialog";
+import { sourceFromGame } from "../../lib/video/build";
 import { isTauriEnv } from "../../lib/ipc";
 import { useLibraryStore } from "../../stores/gameLibraryStore";
 import { currentFen, selectNode, useGameStore } from "../../stores/gameStore";
@@ -29,6 +31,7 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
   const [recordOpen, setRecordOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [tiantianOpen, setTiantianOpen] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
   const [previewMove, setPreviewMove] = useState<MovePreview | null>(null);
 
   const libraryRoot = useLibraryStore((s) => s.root);
@@ -198,6 +201,14 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
         className="rounded-md border border-ink-600 bg-ink-900 px-1.5 py-1 text-[11px] text-ink-200 hover:bg-ink-850 disabled:opacity-40"
       >
         检测
+      </button>
+      <button
+        onClick={() => setVideoOpen(true)}
+        disabled={!hasGame}
+        title="把当前棋谱主线导出为竖版解说视频"
+        className="rounded-md border border-ink-600 bg-ink-900 px-1.5 py-1 text-[11px] text-ink-200 hover:bg-ink-850 disabled:opacity-40"
+      >
+        视频
       </button>
     </>
   );
@@ -396,6 +407,16 @@ export default function ReviewPage({ onExit }: { onExit: () => void }) {
       {recordOpen && <RecordPanel onClose={() => setRecordOpen(false)} />}
       {tiantianOpen && <TiantianDialog onClose={() => setTiantianOpen(false)} />}
       {analysisOpen && <AnalysisPanel onClose={() => setAnalysisOpen(false)} />}
+      {videoOpen && (
+        <VideoExportDialog
+          loadSource={() => {
+            const g = useGameStore.getState().game;
+            if (!g) return Promise.reject(new Error("未打开棋谱"));
+            return Promise.resolve(sourceFromGame(g));
+          }}
+          onClose={() => setVideoOpen(false)}
+        />
+      )}
     </div>
   );
 }

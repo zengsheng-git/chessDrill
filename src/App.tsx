@@ -7,10 +7,11 @@ import WrongBookPage from "./components/wrong/WrongBookPage";
 import ReviewPage from "./components/review/ReviewPage";
 import StatsPage from "./components/stats/StatsPage";
 import SettingsPage from "./components/settings/SettingsPage";
+import VideoPage from "./components/video/VideoPage";
 
 type Tab = "practice" | "test" | "wrong" | "stats" | "settings";
-/** 顶层模块: 杀招残局练习 / 棋谱复盘, null = 模块选择页 */
-type Module = "drill" | "review";
+/** 顶层模块: 杀招残局练习 / 棋谱复盘 / 视频工坊, null = 模块选择页 */
+type Module = "drill" | "review" | "video";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "practice", label: "练习" },
@@ -44,6 +45,7 @@ export default function App() {
         {module === null && <HomeScreen onPick={setModule} />}
         {module === "drill" && <DrillModule onExit={() => setModule(null)} />}
         {module === "review" && <ReviewPage onExit={() => setModule(null)} />}
+        {module === "video" && <VideoPage onExit={() => setModule(null)} />}
       </div>
     </div>
   );
@@ -118,6 +120,31 @@ function HomeScreen({ onPick }: { onPick: (m: Module) => void }) {
             </span>
           </span>
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink-850 text-xs text-ink-400 transition-colors group-hover:bg-gold-500 group-hover:text-white">
+            →
+          </span>
+        </button>
+
+        <button
+          onClick={() => onPick("video")}
+          className="group flex w-full items-center gap-3 rounded-xl border border-ink-600 bg-ink-800 p-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-500/60 hover:shadow-lg hover:shadow-emerald-500/10 active:scale-[0.98]"
+        >
+          <span
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-xl text-emerald-500"
+            style={{ fontFamily: "var(--font-piece)" }}
+          >
+            影
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold text-ink-100">视频工坊</span>
+            <span className="mt-1.5 flex flex-wrap gap-1">
+              {["竖版视频", "解说配音", "库管理"].map((t) => (
+                <span key={t} className="rounded-full bg-ink-850 px-2 py-0.5 text-[10px] text-ink-400">
+                  {t}
+                </span>
+              ))}
+            </span>
+          </span>
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink-850 text-xs text-ink-400 transition-colors group-hover:bg-emerald-500 group-hover:text-white">
             →
           </span>
         </button>

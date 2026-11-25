@@ -14,6 +14,10 @@
 //! - `list_windows` / `start_recording` / `stop_recording`   录制棋谱
 //! - `fetch_tiantian_qipu`                                    导入天天象棋链接
 //! - `analyze_game` / `stop_analysis`                         软件棋检测
+//! 视频导出模块:
+//! - `generate_video` / `stop_video_generation`               棋谱/残局转竖版 MP4
+//! - `reveal_video` / `save_video_as`                         视频产物打开与另存为
+//! - `list_videos` / `delete_video`                           视频库管理
 
 mod analysis;
 mod capture;
@@ -22,6 +26,7 @@ mod engine;
 mod recorder;
 mod tiantian;
 mod tiku;
+mod video;
 mod yolo;
 
 use std::fs;
@@ -603,6 +608,12 @@ pub fn run() {
             tiantian::fetch_tiantian_qipu,
             analysis::analyze_game,
             analysis::stop_analysis,
+            video::generate_video,
+            video::stop_video_generation,
+            video::reveal_video,
+            video::save_video_as,
+            video::list_videos,
+            video::delete_video,
             save_pgn
         ])
         .run(tauri::generate_context!())

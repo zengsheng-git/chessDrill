@@ -4,3 +4,6 @@ src-tauri/target
 src-tauri/gen/schemas
 .history
 *.local
+# 视频导出用 ffmpeg 超过 GitHub 100MB 单文件限制, 不入库:
+# 从 residual-deduction 的 libs/ffmpeg/ffmpeg.exe 拷贝(或 ffmpeg.org 官方构建)放到此目录
+src-tauri/resources/libs/ffmpeg/

@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 复盘模块: 录屏截帧 / 图像缓冲 / PGN 另存为对话框 / 回收站删除 / 天天象棋拉谱
@@ -28,6 +28,12 @@ ureq = { version = "2", features = ["json"] }
 # ONNX Runtime 仅在 Windows 下启用, 运行时动态加载 onnxruntime.dll, 不参与编译链接
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "=2.0.0-rc.9", default-features = false, features = ["ndarray", "load-dynamic"] }
+
+# 视频导出: 棋盘软渲染(imageproc/ab_glyph) + Edge TTS(tungstenite+rustls) + 外部 ffmpeg 编码
+imageproc = "0.25"
+ab_glyph = "0.2"
+tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [profile.dev]
 incremental = true

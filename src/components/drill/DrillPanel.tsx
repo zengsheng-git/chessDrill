@@ -1,5 +1,7 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Board from "../board/Board";
+import VideoExportDialog from "../video/VideoExportDialog";
+import { sourceFromQuestion } from "../../lib/video/build";
 import { useQuiz } from "../../stores/quizStore";
 import { findKing, isInCheck } from "../../lib/board/rules";
 import { chineseNotation } from "../../lib/board/notation";
@@ -48,6 +50,7 @@ export default function DrillPanel({
   extraAction,
 }: DrillPanelProps) {
   const s = useQuiz();
+  const [videoOpen, setVideoOpen] = useState(false);
 
   const checkPos = useMemo<Pos | null>(() => {
     if (s.phase !== "playing" || !s.board.length) return null;
@@ -248,6 +251,14 @@ export default function DrillPanel({
           >
             重做
           </button>
+          <button
+            onClick={() => setVideoOpen(true)}
+            disabled={!s.question || s.phase === "revealing"}
+            title="把本题参考杀法线导出为竖版解说视频"
+            className="flex-1 rounded-md border border-ink-600 bg-ink-900 px-1 py-1.5 text-[11px] text-ink-200 hover:bg-ink-850 disabled:opacity-40"
+          >
+            导视频
+          </button>
           {onPrev && (
             <button
               onClick={onPrev}
@@ -297,6 +308,22 @@ export default function DrillPanel({
           )}
         </div>
       </div>
+
+      {/* 导出视频对话框: 推演本题参考杀法线 */}
+      {videoOpen && (
+        <VideoExportDialog
+          loadSource={() => {
+            const q = useQuiz.getState().question;
+            if (!q) return Promise.reject(new Error("当前没有题目"));
+            return sourceFromQuestion({
+              fen: q.fen,
+              title: q.title?.trim() || `${useQuiz.getState().tikuName} · 第 ${useQuiz.getState().questionIndex + 1} 题`,
+              subtitle: useQuiz.getState().tikuName,
+            });
+          }}
+          onClose={() => setVideoOpen(false)}
+        />
+      )}
     </div>
   );
 }
