@@ -1,5 +1,15 @@
 // 视频导出类型与常量(字段保持 snake_case 以匹配 Rust 端 serde 默认约定)
 
+/** 棋盘标注: 圈注(单点)或箭头(起点→终点), 红=威胁/关键 绿=路线/说明 */
+export interface VideoAnnotation {
+  kind: "circle" | "arrow";
+  /** ICCS 单点(圈注)或起点(箭头) */
+  from: string;
+  /** 箭头终点(圈注为空) */
+  to: string | null;
+  color: "red" | "green";
+}
+
 /** 一手走子(Rust 端渲染所需) */
 export interface VideoMoveStep {
   /** 走子前局面 FEN */
@@ -14,6 +24,8 @@ export interface VideoMoveStep {
   side: "red" | "black";
   /** 走后是否将军对方 */
   check: boolean;
+  /** 该手棋盘标注 */
+  annotations?: VideoAnnotation[];
 }
 
 export interface GenerateVideoParams {

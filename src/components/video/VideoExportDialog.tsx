@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import AnnotationEditor from "./AnnotationEditor";
 import { VOICES } from "../../lib/video/types";
-import type { VideoOutcome, VideoProgress, VideoSourceLoader } from "../../lib/video/types";
+import type { VideoAnnotation, VideoOutcome, VideoProgress, VideoSourceLoader } from "../../lib/video/types";
 import {
   generateVideo,
   listenVideoDone,
@@ -41,6 +42,8 @@ export default function VideoExportDialog({
   const [subtitle, setSubtitle] = useState("");
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("auto");
   const [narrations, setNarrations] = useState<string[]>([]);
+  const [annotations, setAnnotations] = useState<VideoAnnotation[][]>([]);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [introText, setIntroText] = useState("");
   const [outroText, setOutroText] = useState("");
   const [voice, setVoice] = useState<string>(VOICES[0].value);
@@ -64,6 +67,7 @@ export default function VideoExportDialog({
         setTitle(src.title);
         setSubtitle(src.subtitle);
         setNarrations(src.moves.map((m) => `${m.side === "red" ? "红方" : "黑方"}${m.notation}`));
+        setAnnotations(src.moves.map(() => []));
         setIntroText(`${src.title}，我们一起来看这局棋。`);
         setOutroText(src.endsMate ? "绝杀，本局结束，感谢观看。" : "本局演示结束，感谢观看。");
         setPhase("edit");
@@ -104,6 +108,8 @@ export default function VideoExportDialog({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 标注编辑浮层打开期间, Esc 由浮层自己处理(捕获阶段)
+      if (editingIdx !== null) return;
       if (e.key === "Escape" && closable) {
         e.preventDefault();
         onClose();
@@ -111,7 +117,7 @@ export default function VideoExportDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closable, onClose]);
+  }, [closable, onClose, editingIdx]);
 
   const start = () => {
     if (!source) return;
@@ -128,7 +134,7 @@ export default function VideoExportDialog({
     void generateVideo({
       title: title.trim() || source.title,
       subtitle: subtitle.trim(),
-      moves: source.moves,
+      moves: source.moves.map((m, i) => ({ ...m, annotations: annotations[i] ?? [] })),
       narration: auto,
       intro_narration: voiceMode === "off" ? "" : introText.trim(),
       outro_narration: voiceMode === "off" ? "" : outroText.trim(),
@@ -206,8 +212,19 @@ export default function VideoExportDialog({
           {/* ---------- 编辑态 ---------- */}
           {phase === "edit" && source && !loadError && (
             <div className="flex flex-col gap-3 text-xs">
-              <div className="text-ink-400">
-                共 {total} 手 · 竖版 1080×1920 · 输出到应用数据目录后可另存
+              <div className="flex items-center justify-between gap-2 text-ink-400">
+                <span>共 {total} 手 · 竖版 1080×1920</span>
+                <button
+                  onClick={() => setEditingIdx(0)}
+                  title="在第 1 手开始添加棋盘标注（圈注/箭头）"
+                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
+                    annotations.some((a) => a.length > 0)
+                      ? "border-emerald-600/60 bg-emerald-600/10 text-emerald-700"
+                      : "border-ink-600 bg-ink-850 text-ink-300 hover:bg-ink-800"
+                  }`}
+                >
+                  📌 棋盘标注{annotations.some((a) => a.length > 0) ? ` ${annotations.flat().length}` : ""}
+                </button>
               </div>
 
               <label className="flex flex-col gap-1">
@@ -284,9 +301,11 @@ export default function VideoExportDialog({
                     />
                   </label>
 
-                  {voiceMode === "custom" && (
+                  {(voiceMode === "custom" || annotations.some((a) => a.length > 0)) && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-ink-300">逐手解说词（留空则该手不配音）</span>
+                      <span className="text-ink-300">
+                        {voiceMode === "custom" ? "逐手解说词（留空则该手不配音）＋ 棋盘标注" : "棋盘标注（按手）"}
+                      </span>
                       <div className="max-h-52 overflow-y-auto rounded-lg border border-ink-600">
                         {source.moves.map((m, i) => (
                           <div key={i} className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1 last:border-b-0">
@@ -294,14 +313,29 @@ export default function VideoExportDialog({
                             <span className="w-20 shrink-0 truncate text-[11px] text-ink-300" title={`${m.side === "red" ? "红" : "黑"} ${m.notation}`}>
                               {m.notation}
                             </span>
-                            <input
-                              value={narrations[i] ?? ""}
-                              onChange={(e) =>
-                                setNarrations((arr) => arr.map((v, j) => (j === i ? e.target.value : v)))
-                              }
-                              className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
-                              maxLength={120}
-                            />
+                            {voiceMode === "custom" ? (
+                              <input
+                                value={narrations[i] ?? ""}
+                                onChange={(e) =>
+                                  setNarrations((arr) => arr.map((v, j) => (j === i ? e.target.value : v)))
+                                }
+                                className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
+                                maxLength={120}
+                              />
+                            ) : (
+                              <span className="min-w-0 flex-1 text-center text-[10px] text-ink-400">自动解说</span>
+                            )}
+                            <button
+                              onClick={() => setEditingIdx(i)}
+                              title={`第 ${i + 1} 手棋盘标注`}
+                              className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
+                                (annotations[i]?.length ?? 0) > 0
+                                  ? "font-medium text-emerald-600"
+                                  : "text-ink-400 hover:text-ink-200"
+                              }`}
+                            >
+                              📌{(annotations[i]?.length ?? 0) > 0 ? annotations[i]!.length : ""}
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -396,6 +430,18 @@ export default function VideoExportDialog({
           </div>
         )}
       </div>
+
+      {/* 标注编辑浮层(独立于配音模式, 编辑该手棋盘圈注/箭头) */}
+      {editingIdx !== null && source && source.moves[editingIdx] && (
+        <AnnotationEditor
+          fenAfter={source.moves[editingIdx]!.fen_after}
+          annotations={annotations[editingIdx] ?? []}
+          onChange={(list) =>
+            setAnnotations((arr) => arr.map((v, j) => (j === editingIdx ? list : v)))
+          }
+          onClose={() => setEditingIdx(null)}
+        />
+      )}
     </div>
   );
 }

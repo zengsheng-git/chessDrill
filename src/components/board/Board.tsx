@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Fragment, useMemo, type ReactNode } from "react";
 import { parseFen } from "../../lib/board/fen";
 import { pieceColor, pieceGlyph, type Pos } from "../../lib/board/types";
 
@@ -10,6 +10,19 @@ const R = 26;
 
 const RED_FILE_NUMS = ["九", "八", "七", "六", "五", "四", "三", "二", "一"];
 
+/** 棋盘标注(圈注/箭头), 供视频标注编辑等场景所见即所得 */
+export interface BoardAnnotation {
+  kind: "circle" | "arrow";
+  from: Pos;
+  to: Pos | null;
+  color: "red" | "green";
+}
+
+const ANNOTATION_COLORS: Record<"red" | "green", string> = {
+  red: "#dc2626",
+  green: "#2e9e5b",
+};
+
 interface BoardProps {
   fen: string;
   flipped: boolean;
@@ -20,6 +33,8 @@ interface BoardProps {
   checkPos?: Pos | null;
   /** 提示: 建议走法(绿色箭头) */
   hintArrow?: { from: Pos; to: Pos } | null;
+  /** 棋盘标注(画在棋子上层, 与视频渲染同视觉) */
+  annotations?: BoardAnnotation[];
   interactive?: boolean;
   onSquareClick?: (pos: Pos) => void;
 }
@@ -51,6 +66,7 @@ export default function Board({
   targets,
   checkPos,
   hintArrow,
+  annotations,
   interactive = false,
   onSquareClick,
 }: BoardProps) {
@@ -67,6 +83,48 @@ export default function Board({
   ]) {
     marks.push({ x: mx, y: my });
   }
+
+  // 箭头: 手绘杆+三角头(参考 chessboard), 箭尖直达落点中心
+  const renderArrow = (from: Pos, to: Pos, color: string): ReactNode => {
+    const x1 = px(from.x);
+    const y1 = py(from.y);
+    const x2 = px(to.x);
+    const y2 = py(to.y);
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+    if (dist < CELL / 2) return null;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const vx = -uy;
+    const vy = ux;
+    // 箭尾从起点中心外移让开棋子, 箭尖盖在落点棋子上
+    const tailX = x1 + ux * 12;
+    const tailY = y1 + uy * 12;
+    const headLen = 22;
+    const headHalf = 12;
+    const baseX = x2 - ux * headLen;
+    const baseY = y2 - uy * headLen;
+    const shaftX = x2 - ux * (headLen - 2);
+    const shaftY = y2 - uy * (headLen - 2);
+    return (
+      <g opacity="0.9">
+        <line
+          x1={tailX}
+          y1={tailY}
+          x2={shaftX}
+          y2={shaftY}
+          stroke={color}
+          strokeWidth="8"
+          strokeLinecap="round"
+        />
+        <polygon
+          points={`${x2},${y2} ${baseX + vx * headHalf},${baseY + vy * headHalf} ${baseX - vx * headHalf},${baseY - vy * headHalf}`}
+          fill={color}
+        />
+      </g>
+    );
+  };
 
   return (
     <svg
@@ -297,46 +355,26 @@ export default function Board({
       })}
 
       {/* 提示箭头: 手绘杆+三角头(参考 chessboard), 箭尖直达落点中心; 置于棋子上层 */}
-      {hintArrow && (() => {
-        const x1 = px(hintArrow.from.x);
-        const y1 = py(hintArrow.from.y);
-        const x2 = px(hintArrow.to.x);
-        const y2 = py(hintArrow.to.y);
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const dist = Math.hypot(dx, dy);
-        if (dist < CELL / 2) return null;
-        const ux = dx / dist;
-        const uy = dy / dist;
-        const vx = -uy;
-        const vy = ux;
-        // 箭尾从起点中心外移让开棋子, 箭尖盖在落点棋子上
-        const tailX = x1 + ux * 12;
-        const tailY = y1 + uy * 12;
-        const headLen = 22;
-        const headHalf = 12;
-        const baseX = x2 - ux * headLen;
-        const baseY = y2 - uy * headLen;
-        const shaftX = x2 - ux * (headLen - 2);
-        const shaftY = y2 - uy * (headLen - 2);
-        return (
-          <g opacity="0.9">
-            <line
-              x1={tailX}
-              y1={tailY}
-              x2={shaftX}
-              y2={shaftY}
-              stroke="#2e9e5b"
-              strokeWidth="8"
-              strokeLinecap="round"
+      {hintArrow && renderArrow(hintArrow.from, hintArrow.to, "#2e9e5b")}
+
+      {/* 棋盘标注: 圈注圆环 + 箭头(棋子上层, 与视频渲染同视觉) */}
+      {(annotations ?? []).map((a, i) => (
+        <Fragment key={`an${i}`}>
+          {a.kind === "circle" ? (
+            <circle
+              cx={px(a.from.x)}
+              cy={py(a.from.y)}
+              r={R + 8}
+              fill="none"
+              stroke={ANNOTATION_COLORS[a.color]}
+              strokeWidth="3"
+              opacity="0.9"
             />
-            <polygon
-              points={`${x2},${y2} ${baseX + vx * headHalf},${baseY + vy * headHalf} ${baseX - vx * headHalf},${baseY - vy * headHalf}`}
-              fill="#2e9e5b"
-            />
-          </g>
-        );
-      })()}
+          ) : (
+            a.to && renderArrow(a.from, a.to, ANNOTATION_COLORS[a.color])
+          )}
+        </Fragment>
+      ))}
 
       {interactive &&
         onSquareClick &&

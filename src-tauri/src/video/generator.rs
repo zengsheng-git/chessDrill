@@ -11,8 +11,12 @@ use crate::video::ffmpeg as ff;
 use crate::video::library;
 use crate::video::render::find_king;
 use crate::video::render::fen_to_board;
+use crate::video::render::parse_point;
 use crate::video::render::split_subtitle;
+use crate::video::render::AnnotationColor;
+use crate::video::render::AnnotationKind;
 use crate::video::render::FrameScene;
+use crate::video::render::SceneAnnotation;
 use crate::video::render::SUBTITLE_MAX_CHARS;
 use crate::video::render::FPS;
 use crate::video::render::Renderer;
@@ -84,6 +88,37 @@ fn frame_to_rgb(frame: &image::RgbaImage) -> Vec<u8> {
     rgb
 }
 
+// 前端标注 DTO → 场景标注(非法数据静默跳过)
+fn to_scene_annotations(dtos: &[crate::video::AnnotationDto]) -> Vec<SceneAnnotation> {
+    dtos
+        .iter()
+        .filter_map(|a| {
+            let from = parse_point(&a.from)?;
+            let to = match a.to.as_deref() {
+                Some(t) => match parse_point(t) {
+                    Some(p) => Some(p),
+                    None => return None,
+                },
+                None => None,
+            };
+            let kind = if a.kind == "arrow" {
+                if to.is_none() {
+                    return None; // 箭头必须有终点
+                }
+                AnnotationKind::Arrow
+            } else {
+                AnnotationKind::Circle
+            };
+            let color = if a.color == "green" {
+                AnnotationColor::Green
+            } else {
+                AnnotationColor::Red
+            };
+            Some(SceneAnnotation { kind, from, to, color })
+        })
+        .collect()
+}
+
 // 走子数据 → 场景序列(开场卡 + 走子 × N + 结尾卡)
 fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
     if params.moves.is_empty() {
@@ -106,6 +141,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
         subtitle: intro_sub.to_string(),
         subtitles: split_subtitle(intro_sub, SUBTITLE_MAX_CHARS),
         check_pos: None,
+        annotations: vec![],
     });
 
     // 走子场景
@@ -127,6 +163,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
             subtitle: narration.to_string(),
             subtitles: split_subtitle(narration, SUBTITLE_MAX_CHARS),
             check_pos,
+            annotations: to_scene_annotations(&mv.annotations),
         });
     }
 
@@ -149,6 +186,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
         subtitle: outro_sub.to_string(),
         subtitles: split_subtitle(outro_sub, SUBTITLE_MAX_CHARS),
         check_pos: None,
+        annotations: vec![],
     });
     Ok(scenes)
 }
@@ -373,6 +411,7 @@ mod tests {
                     notation: "马二进三".into(),
                     side: "red".into(),
                     check: false,
+                    annotations: vec![],
                 },
             ],
             narration: vec!["红方跳马".into()],
@@ -406,6 +445,7 @@ mod tests {
             subtitle: String::new(),
             subtitles: vec![],
             check_pos: None,
+            annotations: vec![],
         };
         // 有配音
         assert!((scene_duration(&scene, Some(2.0)) - (LEAD + 2.0 + TAIL)).abs() < 1e-9);

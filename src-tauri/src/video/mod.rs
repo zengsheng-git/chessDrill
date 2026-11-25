@@ -29,6 +29,21 @@ use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
+/// 棋盘标注(用户在导出对话框里逐手添加)
+#[derive(Debug, Deserialize)]
+pub struct AnnotationDto {
+    /// "circle" 圈注 | "arrow" 箭头
+    pub kind: String,
+    /// ICCS 单点(圈注)或起点(箭头)
+    pub from: String,
+    /// 箭头终点(圈注为空)
+    #[serde(default)]
+    pub to: Option<String>,
+    /// "red" 威胁/关键 | "green" 路线/说明
+    #[serde(default)]
+    pub color: String,
+}
+
 /// 一手走子(前端推演产出, 棋规留在前端, Rust 端只做渲染)
 #[derive(Debug, Deserialize)]
 pub struct VideoMoveStep {
@@ -45,6 +60,9 @@ pub struct VideoMoveStep {
     /// 走后是否将军对方
     #[serde(default)]
     pub check: bool,
+    /// 该手棋盘标注
+    #[serde(default)]
+    pub annotations: Vec<AnnotationDto>,
 }
 
 #[derive(Debug, Deserialize)]

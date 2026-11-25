@@ -6,8 +6,9 @@
 use ab_glyph::{Font as _, FontVec, ScaleFont as _};
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{
-    draw_hollow_circle_mut, draw_line_segment_mut, draw_text_mut,
+    draw_hollow_circle_mut, draw_line_segment_mut, draw_polygon_mut, draw_text_mut,
 };
+use imageproc::point::Point;
 use imageproc::rect::Rect;
 use std::collections::HashMap;
 
@@ -65,6 +66,45 @@ const SUB_SIZE: f32 = 38.0;
 const SUB_LINE_STEP: i32 = 58;
 pub const SUBTITLE_MAX_CHARS: usize = 26;
 
+/// 棋盘标注类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationKind {
+    /// 圈注(套在棋子上的高亮圆环)
+    Circle,
+    /// 箭头(from → to, 标攻击线路/走势)
+    Arrow,
+}
+
+/// 标注颜色: 红=威胁/关键(#dc2626), 绿=路线/说明(#2e9e5b)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationColor {
+    Red,
+    Green,
+}
+
+/// 一条棋盘标注(坐标为画面棋盘坐标 row0=顶)
+#[derive(Debug, Clone)]
+pub struct SceneAnnotation {
+    pub kind: AnnotationKind,
+    pub from: (usize, usize),
+    pub to: Option<(usize, usize)>,
+    pub color: AnnotationColor,
+}
+
+/// 解析 ICCS 单点("c3", 数字端 0 为红方底线) → (col, row)
+pub fn parse_point(s: &str) -> Option<(usize, usize)> {
+    let b = s.trim().as_bytes();
+    if b.len() < 2 {
+        return None;
+    }
+    let col = (b[0] as char).to_ascii_lowercase() as usize - 97;
+    let row = 9 - (b[1] as char).to_digit(10)? as usize;
+    if col > 8 {
+        return None;
+    }
+    Some((col, row))
+}
+
 /// 一个场景的一帧所需全部数据
 pub struct FrameScene {
     pub board_before: Board,
@@ -84,6 +124,8 @@ pub struct FrameScene {
     pub subtitles: Vec<String>,
     /// 被将军的将帅位置(棋盘坐标 row0=顶)
     pub check_pos: Option<(usize, usize)>,
+    /// 棋盘标注(走子落定后显示, 棋子上层)
+    pub annotations: Vec<SceneAnnotation>,
 }
 
 /// 标准中国象棋 FEN → 棋盘; 返回 (棋盘, 行棋方 'w'红/'b'黑)
@@ -428,6 +470,33 @@ impl Renderer {
             }
         }
 
+        // 棋盘标注(走子落定后显示, 棋子上层): 圈注圆环 / 箭头杆+三角头
+        if !animating {
+            for ann in &scene.annotations {
+                let color = match ann.color {
+                    AnnotationColor::Red => Rgba([0xdc, 0x26, 0x26, 255]),
+                    AnnotationColor::Green => MARK_GREEN,
+                };
+                match ann.kind {
+                    AnnotationKind::Circle => {
+                        draw_ring_w(&mut canvas, px(ann.from.0), py(ann.from.1), PIECE_R + 8, 5, color);
+                    }
+                    AnnotationKind::Arrow => {
+                        if let Some(to) = ann.to {
+                            draw_arrow(
+                                &mut canvas,
+                                px(ann.from.0),
+                                py(ann.from.1),
+                                px(to.0),
+                                py(to.1),
+                                color,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         self.draw_panel(&mut canvas, scene);
         self.draw_subtitle(&mut canvas, scene, t);
         canvas
@@ -590,6 +659,31 @@ fn draw_ring_w(canvas: &mut RgbaImage, cx: i32, cy: i32, r: i32, width: i32, col
     for rr in (r - half)..=(r + half) {
         draw_hollow_circle_mut(canvas, (cx, cy), rr, color);
     }
+}
+
+// 标注箭头: 杆 + 三角头(公式与前端 Board.tsx hintArrow 一致, 尺寸按 1.742 缩放)
+fn draw_arrow(canvas: &mut RgbaImage, x1: i32, y1: i32, x2: i32, y2: i32, color: Rgba<u8>) {
+    let dx = (x2 - x1) as f32;
+    let dy = (y2 - y1) as f32;
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist < CELL as f32 / 2.0 {
+        return;
+    }
+    let ux = dx / dist;
+    let uy = dy / dist;
+    let vx = -uy;
+    let vy = ux;
+    // 箭尾外移让开棋子, 箭尖盖在落点棋子上
+    let tail = (x1 as f32 + ux * 21.0, y1 as f32 + uy * 21.0);
+    let head_len = 38.0;
+    let head_half = 20.0;
+    let base = (x2 as f32 - ux * head_len, y2 as f32 - uy * head_len);
+    let shaft = (x2 as f32 - ux * (head_len - 4.0), y2 as f32 - uy * (head_len - 4.0));
+    draw_line_w(canvas, tail.0 as i32, tail.1 as i32, shaft.0 as i32, shaft.1 as i32, 14, color);
+    let tip = Point::new(x2, y2);
+    let p2 = Point::new((base.0 + vx * head_half) as i32, (base.1 + vy * head_half) as i32);
+    let p3 = Point::new((base.0 - vx * head_half) as i32, (base.1 - vy * head_half) as i32);
+    draw_polygon_mut(canvas, &[tip, p2, p3], color);
 }
 
 // 矩形描边
@@ -821,7 +915,21 @@ mod tests {
             info_lines: vec![],
             subtitle: sub.to_string(),
             subtitles: split_subtitle(sub, SUBTITLE_MAX_CHARS),
-            check_pos: None,
+            check_pos: Some((4, 9)), // 红帅演示将军圈
+            annotations: vec![
+                SceneAnnotation {
+                    kind: AnnotationKind::Circle,
+                    from: parse_point("e6").unwrap(), // 黑中卒 圈注
+                    to: None,
+                    color: AnnotationColor::Red,
+                },
+                SceneAnnotation {
+                    kind: AnnotationKind::Arrow,
+                    from: parse_point("e7").unwrap(),
+                    to: Some(parse_point("e2").unwrap()), // 黑炮→红炮 威胁线
+                    color: AnnotationColor::Green,
+                },
+            ],
         };
         let renderer = Renderer::new().unwrap();
         let dir = std::env::temp_dir().join("chessdrill-video-preview");
