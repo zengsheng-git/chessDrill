@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import AnnotationEditor from "./AnnotationEditor";
+import BranchPicker from "./BranchPicker";
 import { VOICES } from "../../lib/video/types";
-import type { VideoAnnotation, VideoOutcome, VideoProgress, VideoSourceLoader } from "../../lib/video/types";
+import type { BranchConfig, VideoAnnotation, VideoOutcome, VideoProgress, VideoSourceLoader } from "../../lib/video/types";
 import {
   generateVideo,
   listenVideoDone,
@@ -44,6 +45,14 @@ export default function VideoExportDialog({
   const [narrations, setNarrations] = useState<string[]>([]);
   const [annotations, setAnnotations] = useState<VideoAnnotation[][]>([]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  /** 变招配置: 勾选 + 演示手数 + 自定义解说词 */
+  const [branchConfig, setBranchConfig] = useState<BranchConfig>({
+    picks: {},
+    lineLens: {},
+    altComments: {},
+    previewComments: {},
+  });
+  const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const [introText, setIntroText] = useState("");
   const [outroText, setOutroText] = useState("");
   const [voice, setVoice] = useState<string>(VOICES[0].value);
@@ -134,7 +143,28 @@ export default function VideoExportDialog({
     void generateVideo({
       title: title.trim() || source.title,
       subtitle: subtitle.trim(),
-      moves: source.moves.map((m, i) => ({ ...m, annotations: annotations[i] ?? [] })),
+      moves: source.moves.map((m, i) => {
+        const bp = source.branchPoints.find((p) => p.moveIndex === i);
+        const picked = bp ? (branchConfig.picks[i] ?? []) : [];
+        const maxLine = bp ? Math.max(...bp.alternatives.map((a) => a.line.length), 1) : 1;
+        const rawLen = branchConfig.lineLens[i];
+        const len = rawLen === undefined ? Math.min(2, maxLine) : rawLen === 0 ? maxLine : Math.min(rawLen, maxLine);
+        const branches =
+          bp && picked.length > 0
+            ? bp.alternatives
+                .filter((a) => picked.includes(a.iccs))
+                .map((a) => ({
+                  moves: a.line.slice(0, len),
+                  comments: a.line.slice(0, len).map((_, k) => branchConfig.altComments[`${i}:${a.iccs}:${k}`] ?? ""),
+                }))
+            : [];
+        return {
+          ...m,
+          annotations: annotations[i] ?? [],
+          branches,
+          branch_preview_comment: branches.length > 0 ? (branchConfig.previewComments[i] ?? "") : "",
+        };
+      }),
       narration: auto,
       intro_narration: voiceMode === "off" ? "" : introText.trim(),
       outro_narration: voiceMode === "off" ? "" : outroText.trim(),
@@ -171,7 +201,10 @@ export default function VideoExportDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/70"
-      onClick={() => closable && onClose()}
+      onClick={(e) => {
+        // 仅点击遮罩空白关闭; 子浮层(标注/变招勾选)内部的点击不冒泡误关
+        if (e.target === e.currentTarget && closable) onClose();
+      }}
     >
       <div
         className="flex max-h-[86vh] w-[min(460px,calc(100vw-24px))] flex-col rounded-xl border border-gold-500/40 bg-ink-900 p-4 shadow-2xl"
@@ -213,18 +246,42 @@ export default function VideoExportDialog({
           {phase === "edit" && source && !loadError && (
             <div className="flex flex-col gap-3 text-xs">
               <div className="flex items-center justify-between gap-2 text-ink-400">
-                <span>共 {total} 手 · 竖版 1080×1920</span>
-                <button
-                  onClick={() => setEditingIdx(0)}
-                  title="在第 1 手开始添加棋盘标注（圈注/箭头）"
-                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
-                    annotations.some((a) => a.length > 0)
-                      ? "border-emerald-600/60 bg-emerald-600/10 text-emerald-700"
-                      : "border-ink-600 bg-ink-850 text-ink-300 hover:bg-ink-800"
-                  }`}
-                >
-                  📌 棋盘标注{annotations.some((a) => a.length > 0) ? ` ${annotations.flat().length}` : ""}
-                </button>
+                <span>
+                  共 {total} 手
+                  {source.branchPoints.length > 0 && (
+                    <span className="ml-1 text-ink-400">· {source.branchPoints.length} 处变招</span>
+                  )}
+                  <span className="ml-1">· 竖版 1080×1920</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  {source.branchPoints.length > 0 && (
+                    <button
+                      onClick={() => setBranchPickerOpen(true)}
+                      title="选择哪些变招进视频(演示时先预览再逐个真实走子), 可自定义解说词"
+                      className={`rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
+                        Object.values(branchConfig.picks).some((l) => l.length > 0)
+                          ? "border-emerald-600/60 bg-emerald-600/10 text-emerald-700"
+                          : "border-ink-600 bg-ink-850 text-ink-300 hover:bg-ink-800"
+                      }`}
+                    >
+                      ⑂ 变招
+                      {Object.values(branchConfig.picks).some((l) => l.length > 0)
+                        ? ` ${Object.values(branchConfig.picks).reduce((n, l) => n + l.length, 0)}`
+                        : ""}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setEditingIdx(0)}
+                    title="在第 1 手开始添加棋盘标注（圈注/箭头）"
+                    className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
+                      annotations.some((a) => a.length > 0)
+                        ? "border-emerald-600/60 bg-emerald-600/10 text-emerald-700"
+                        : "border-ink-600 bg-ink-850 text-ink-300 hover:bg-ink-800"
+                    }`}
+                  >
+                    📌 棋盘标注{annotations.some((a) => a.length > 0) ? ` ${annotations.flat().length}` : ""}
+                  </button>
+                </span>
               </div>
 
               <label className="flex flex-col gap-1">
@@ -301,43 +358,124 @@ export default function VideoExportDialog({
                     />
                   </label>
 
-                  {(voiceMode === "custom" || annotations.some((a) => a.length > 0)) && (
+                  {(voiceMode === "custom" ||
+                    annotations.some((a) => a.length > 0) ||
+                    Object.values(branchConfig.altComments).some((v) => v) ||
+                    Object.values(branchConfig.previewComments).some((v) => v)) && (
                     <div className="flex flex-col gap-1">
                       <span className="text-ink-300">
-                        {voiceMode === "custom" ? "逐手解说词（留空则该手不配音）＋ 棋盘标注" : "棋盘标注（按手）"}
+                        {voiceMode === "custom" ? "逐手解说词（留空则该手不配音）＋ 标注/变招" : "标注 / 变招解说词（按手）"}
                       </span>
                       <div className="max-h-52 overflow-y-auto rounded-lg border border-ink-600">
-                        {source.moves.map((m, i) => (
-                          <div key={i} className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1 last:border-b-0">
-                            <span className="w-10 shrink-0 text-right text-[10px] text-ink-400">{i + 1}</span>
-                            <span className="w-20 shrink-0 truncate text-[11px] text-ink-300" title={`${m.side === "red" ? "红" : "黑"} ${m.notation}`}>
-                              {m.notation}
-                            </span>
-                            {voiceMode === "custom" ? (
-                              <input
-                                value={narrations[i] ?? ""}
-                                onChange={(e) =>
-                                  setNarrations((arr) => arr.map((v, j) => (j === i ? e.target.value : v)))
-                                }
-                                className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
-                                maxLength={120}
-                              />
-                            ) : (
-                              <span className="min-w-0 flex-1 text-center text-[10px] text-ink-400">自动解说</span>
-                            )}
-                            <button
-                              onClick={() => setEditingIdx(i)}
-                              title={`第 ${i + 1} 手棋盘标注`}
-                              className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
-                                (annotations[i]?.length ?? 0) > 0
-                                  ? "font-medium text-emerald-600"
-                                  : "text-ink-400 hover:text-ink-200"
-                              }`}
-                            >
-                              📌{(annotations[i]?.length ?? 0) > 0 ? annotations[i]!.length : ""}
-                            </button>
-                          </div>
-                        ))}
+                        {source.moves.map((m, i) => {
+                          const bp = source.branchPoints.find((p) => p.moveIndex === i);
+                          const pickedAlts =
+                            bp && (branchConfig.picks[i]?.length ?? 0) > 0
+                              ? bp.alternatives.filter((a) => branchConfig.picks[i]!.includes(a.iccs))
+                              : [];
+                          const maxLine = bp ? Math.max(...bp.alternatives.map((a) => a.line.length), 1) : 1;
+                          const rawLen = branchConfig.lineLens[i];
+                          const branchLen =
+                            rawLen === undefined ? Math.min(2, maxLine) : rawLen === 0 ? maxLine : Math.min(rawLen, maxLine);
+                          const hasBranchInputs =
+                            pickedAlts.length > 0 &&
+                            (voiceMode === "custom" ||
+                              branchConfig.previewComments[i] ||
+                              pickedAlts.some((a) =>
+                                a.line.slice(0, branchLen).some((_, k) => branchConfig.altComments[`${i}:${a.iccs}:${k}`]),
+                              ));
+                          return (
+                            <Fragment key={i}>
+                              <div className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1">
+                                <span className="w-10 shrink-0 text-right text-[10px] text-ink-400">{i + 1}</span>
+                                <span className="w-20 shrink-0 truncate text-[11px] text-ink-300" title={`${m.side === "red" ? "红" : "黑"} ${m.notation}`}>
+                                  {m.notation}
+                                </span>
+                                {voiceMode === "custom" ? (
+                                  <input
+                                    value={narrations[i] ?? ""}
+                                    onChange={(e) =>
+                                      setNarrations((arr) => arr.map((v, j) => (j === i ? e.target.value : v)))
+                                    }
+                                    className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
+                                    maxLength={120}
+                                  />
+                                ) : (
+                                  <span className="min-w-0 flex-1 text-center text-[10px] text-ink-400">自动解说</span>
+                                )}
+                                <button
+                                  onClick={() => setEditingIdx(i)}
+                                  title={`第 ${i + 1} 手棋盘标注`}
+                                  className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
+                                    (annotations[i]?.length ?? 0) > 0
+                                      ? "font-medium text-emerald-600"
+                                      : "text-ink-400 hover:text-ink-200"
+                                  }`}
+                                >
+                                  📌{(annotations[i]?.length ?? 0) > 0 ? annotations[i]!.length : ""}
+                                </button>
+                              </div>
+                              {/* 变招解说词行(该手勾选了变招时, 统一在此编辑) */}
+                              {hasBranchInputs && (
+                                <>
+                                  <div className="flex items-center gap-1.5 border-b border-ink-700 bg-ink-850/60 px-1.5 py-1 pl-7">
+                                    <span className="w-16 shrink-0 truncate text-[10px] text-emerald-700" title="变招预览卡解说词">
+                                      ⑂ 预览
+                                    </span>
+                                    <input
+                                      value={branchConfig.previewComments[i] ?? ""}
+                                      onChange={(e) =>
+                                        setBranchConfig((cfg) => ({
+                                          ...cfg,
+                                          previewComments: { ...cfg.previewComments, [i]: e.target.value },
+                                        }))
+                                      }
+                                      placeholder="预览解说词（留空用自动模板）"
+                                      maxLength={120}
+                                      className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
+                                    />
+                                  </div>
+                                  {pickedAlts.map((a) =>
+                                    a.line.slice(0, branchLen).map((mv, k) => (
+                                      <div
+                                        key={`${i}:${a.iccs}:${k}`}
+                                        className="flex items-center gap-1.5 border-b border-ink-700 bg-ink-850/60 px-1.5 py-1 pl-7 last:border-b-0"
+                                      >
+                                        <span
+                                          className="w-16 shrink-0 truncate text-[10px] text-emerald-700"
+                                          title={`变招线第 ${k + 1} 手`}
+                                        >
+                                          ⑂ {k + 1}/{a.line.slice(0, branchLen).length} {mv.notation}
+                                        </span>
+                                        <input
+                                          value={branchConfig.altComments[`${i}:${a.iccs}:${k}`] ?? ""}
+                                          onChange={(e) =>
+                                            setBranchConfig((cfg) => ({
+                                              ...cfg,
+                                              altComments: {
+                                                ...cfg.altComments,
+                                                [`${i}:${a.iccs}:${k}`]: e.target.value,
+                                              },
+                                            }))
+                                          }
+                                          placeholder={
+                                            k === 0
+                                              ? "首手解说词（留空用自动：先看变招…）"
+                                              : k === a.line.slice(0, branchLen).length - 1
+                                                ? "末手解说词（留空用自动：最后走…）"
+                                                : "解说词（留空用自动：接着走…）"
+                                          }
+                                          maxLength={120}
+                                          className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
+                                        />
+                                      </div>
+                                    )),
+                                  )}
+                                </>
+                              )}
+                            </Fragment>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -394,7 +532,8 @@ export default function VideoExportDialog({
                 className="w-full rounded-lg border border-ink-700"
               />
               <div className="text-ink-400">
-                共 {outcome.move_count} 手 · 时长 {Math.round(outcome.duration_secs)} 秒 ·{" "}
+                共 {outcome.move_count} 手 · 视频时长 {Math.round(outcome.duration_secs)} 秒 · 生成耗时{" "}
+                <span className="font-medium text-emerald-700">{Math.round(outcome.elapsed_secs)} 秒</span> ·{" "}
                 {fmtSize(outcome.size_bytes)}
               </div>
               <div className="flex gap-2">
@@ -440,6 +579,16 @@ export default function VideoExportDialog({
             setAnnotations((arr) => arr.map((v, j) => (j === editingIdx ? list : v)))
           }
           onClose={() => setEditingIdx(null)}
+        />
+      )}
+
+      {/* 变招勾选浮层(仅复盘棋谱来源) */}
+      {branchPickerOpen && source && (
+        <BranchPicker
+          branchPoints={source.branchPoints}
+          config={branchConfig}
+          onChange={setBranchConfig}
+          onClose={() => setBranchPickerOpen(false)}
         />
       )}
     </div>

@@ -34,6 +34,7 @@ const RIVER_TEXT: [u8; 3] = [0x9a, 0x74, 0x34]; // 楚河汉界 #9a7434
 const COORD_TEXT: [u8; 3] = [0x6b, 0x4a, 0x1e]; // 路数 #6b4a1e
 const MARK_GREEN: Rgba<u8> = Rgba([0x2e, 0x9e, 0x5b, 255]); // 走子标记 #2e9e5b
 const CHECK_RED: Rgba<u8> = Rgba([0xdc, 0x26, 0x26, 230]); // 将军 #dc2626
+const ANNOT_CYAN: Rgba<u8> = Rgba([0x0e, 0x74, 0x90, 255]); // 变招演示标记(青, 同前端选中圈 #0e7490)
 // 木底板渐变 #f0d8a8 → #e6c68c(55%) → #dcb877
 const WOOD_1: [u8; 3] = [0xf0, 0xd8, 0xa8];
 const WOOD_2: [u8; 3] = [0xe6, 0xc6, 0x8c];
@@ -105,6 +106,17 @@ pub fn parse_point(s: &str) -> Option<(usize, usize)> {
     Some((col, row))
 }
 
+/// 在局面上执行一步 ICCS 走子(假定合法, 供变招演示构造逐手局面)
+pub fn apply_iccs(board: &Board, iccs: &str) -> Board {
+    let (fx, fy, tx, ty, piece) = iccs_endpoints(board, iccs);
+    let mut b = *board;
+    if piece != ' ' {
+        b[fy][fx] = ' ';
+        b[ty][tx] = piece;
+    }
+    b
+}
+
 /// 一个场景的一帧所需全部数据
 pub struct FrameScene {
     pub board_before: Board,
@@ -126,6 +138,8 @@ pub struct FrameScene {
     pub check_pos: Option<(usize, usize)>,
     /// 棋盘标注(走子落定后显示, 棋子上层)
     pub annotations: Vec<SceneAnnotation>,
+    /// 变招演示场景: 走子标记用青色(区别主线的绿色), 其余渲染同主线走子
+    pub cyan_marks: bool,
 }
 
 /// 标准中国象棋 FEN → 棋盘; 返回 (棋盘, 行棋方 'w'红/'b'黑)
@@ -424,27 +438,13 @@ impl Renderer {
         let px = |col: usize| BOARD_X + PAD + col as i32 * CELL;
         let py = |row: usize| BOARD_Y + PAD + row as i32 * CELL;
 
+        // 走子标记颜色: 主线绿色, 变招演示青色
+        let mark = if scene.cyan_marks { ANNOT_CYAN } else { MARK_GREEN };
+
         if animating {
             // 动画阶段: 其他棋子取 before 局面, 移动棋子 ease-out 插值
-            let (fx, fy, tx, ty, piece) = {
-                let iccs = scene.move_iccs.as_ref().expect("animating 需要 move_iccs");
-                iccs_endpoints(&scene.board_before, iccs)
-            };
-            // 起点绿色四角括号
-            draw_corner_bracket(&mut canvas, px(fx), py(fy), 30, 16, 4, MARK_GREEN);
-            for row in 0..10usize {
-                for col in 0..9usize {
-                    if (col, row) != (fx, fy) && scene.board_before[row][col] != ' ' {
-                        self.overlay_piece(&mut canvas, scene.board_before[row][col], px(col), py(row));
-                    }
-                }
-            }
-            let ease = 1.0 - (1.0 - t).powi(3);
-            let cx = (px(fx) as f32 + (px(tx) - px(fx)) as f32 * ease) as i32;
-            let cy = (py(fy) as f32 + (py(ty) - py(fy)) as f32 * ease) as i32;
-            if piece != ' ' {
-                self.overlay_piece(&mut canvas, piece, cx, cy);
-            }
+            let iccs = scene.move_iccs.as_ref().expect("animating 需要 move_iccs");
+            self.draw_move_anim(&mut canvas, &scene.board_before, iccs, t, mark);
         } else {
             // 落定状态
             for row in 0..10usize {
@@ -457,9 +457,9 @@ impl Renderer {
             }
             if let Some(iccs) = &scene.move_iccs {
                 let (fx, fy, tx, ty, _) = iccs_endpoints(&scene.board_after, iccs);
-                // 起点绿括号 + 落点绿圆环(天天象棋风格, 与前端一致)
-                draw_corner_bracket(&mut canvas, px(fx), py(fy), 30, 16, 4, MARK_GREEN);
-                draw_ring_w(&mut canvas, px(tx), py(ty), PIECE_R + 5, 4, MARK_GREEN);
+                // 起点括号 + 落点圆环(天天象棋风格, 与前端一致)
+                draw_corner_bracket(&mut canvas, px(fx), py(fy), 30, 16, 4, mark);
+                draw_ring_w(&mut canvas, px(tx), py(ty), PIECE_R + 5, 4, mark);
             }
         }
 
@@ -510,6 +510,27 @@ impl Renderer {
                 (cx - sprite.width() as i32 / 2) as i64,
                 (cy - sprite.height() as i32 / 2) as i64,
             );
+        }
+    }
+
+    // 走子动画帧: 其他棋子取局面棋子, 移动棋子 ease-out 插值, 起点四角括号
+    fn draw_move_anim(&self, canvas: &mut RgbaImage, board: &Board, iccs: &str, t: f32, mark: Rgba<u8>) {
+        let px = |col: usize| BOARD_X + PAD + col as i32 * CELL;
+        let py = |row: usize| BOARD_Y + PAD + row as i32 * CELL;
+        let (fx, fy, tx, ty, piece) = iccs_endpoints(board, iccs);
+        draw_corner_bracket(canvas, px(fx), py(fy), 30, 16, 4, mark);
+        for row in 0..10usize {
+            for col in 0..9usize {
+                if (col, row) != (fx, fy) && board[row][col] != ' ' {
+                    self.overlay_piece(canvas, board[row][col], px(col), py(row));
+                }
+            }
+        }
+        let ease = 1.0 - (1.0 - t).powi(3);
+        let cx = (px(fx) as f32 + (px(tx) - px(fx)) as f32 * ease) as i32;
+        let cy = (py(fy) as f32 + (py(ty) - py(fy)) as f32 * ease) as i32;
+        if piece != ' ' {
+            self.overlay_piece(canvas, piece, cx, cy);
         }
     }
 
@@ -916,6 +937,7 @@ mod tests {
             subtitle: sub.to_string(),
             subtitles: split_subtitle(sub, SUBTITLE_MAX_CHARS),
             check_pos: Some((4, 9)), // 红帅演示将军圈
+            cyan_marks: false,
             annotations: vec![
                 SceneAnnotation {
                     kind: AnnotationKind::Circle,
@@ -937,6 +959,56 @@ mod tests {
         for (name, t) in [("anim", 0.35f32), ("done", 1.0)] {
             let frame = renderer.render_frame(&scene, t);
             assert_eq!((frame.width(), frame.height()), (CANVAS_W, CANVAS_H));
+            let path = dir.join(format!("{name}.png"));
+            frame.save(&path).unwrap();
+            println!("saved {}", path.display());
+        }
+
+        // 变招演示场景: 预览卡(绿箭头示意) + 演示卡(真实走子)
+        let preview_sub = "第 2 手之前, 黑方另有 2 种选择: 炮8进4、马8进7。我们先看这些变招。";
+        let preview = FrameScene {
+            board_before: board,
+            board_after: board,
+            move_iccs: None,
+            title: "中炮对屏风马".to_string(),
+            headline: String::new(),
+            current_move: Some("第 2 手 · 2 种变招".to_string()),
+            info_lines: vec![],
+            subtitle: preview_sub.to_string(),
+            subtitles: split_subtitle(preview_sub, SUBTITLE_MAX_CHARS),
+            check_pos: None,
+            annotations: vec![
+                SceneAnnotation {
+                    kind: AnnotationKind::Arrow,
+                    from: parse_point("c7").unwrap(),
+                    to: Some(parse_point("c4").unwrap()),
+                    color: AnnotationColor::Green,
+                },
+                SceneAnnotation {
+                    kind: AnnotationKind::Arrow,
+                    from: parse_point("b9").unwrap(),
+                    to: Some(parse_point("c7").unwrap()),
+                    color: AnnotationColor::Green,
+                },
+            ],
+            cyan_marks: false,
+        };
+        let branch = FrameScene {
+            board_before: board,
+            board_after: apply_iccs(&board, "b7e7"),
+            move_iccs: Some("b7e7".to_string()),
+            title: "中炮对屏风马".to_string(),
+            headline: String::new(),
+            current_move: Some("变招 · 黑方 炮8平5".to_string()),
+            info_lines: vec![],
+            subtitle: "先看变招: 炮8平5。".to_string(),
+            subtitles: split_subtitle("先看变招: 炮8平5。", SUBTITLE_MAX_CHARS),
+            check_pos: None,
+            annotations: vec![],
+            cyan_marks: true,
+        };
+        for (name, scene, t) in [("branch_preview", &preview, 1.0f32), ("branch_anim", &branch, 0.62), ("branch_done", &branch, 1.0)] {
+            let frame = renderer.render_frame(scene, t);
             let path = dir.join(format!("{name}.png"));
             frame.save(&path).unwrap();
             println!("saved {}", path.display());

@@ -9,6 +9,7 @@ use std::time::UNIX_EPOCH;
 
 use crate::video::ffmpeg as ff;
 use crate::video::library;
+use crate::video::render::apply_iccs;
 use crate::video::render::find_king;
 use crate::video::render::fen_to_board;
 use crate::video::render::parse_point;
@@ -142,11 +143,101 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
         subtitles: split_subtitle(intro_sub, SUBTITLE_MAX_CHARS),
         check_pos: None,
         annotations: vec![],
+        cyan_marks: false,
     });
 
-    // 走子场景
+    // 走子场景(该手勾选了变招时, 先插"变招预览卡"与每变招"真实走子演示卡")
     for (i, mv) in params.moves.iter().enumerate() {
         let (before, _) = fen_to_board(&mv.fen_before)?;
+
+        // 变招场景
+        if !mv.branches.is_empty() {
+            let alts: Vec<String> = mv
+                .branches
+                .iter()
+                .map(|b| b.moves.first().map(|m| m.notation.clone()).unwrap_or_default())
+                .collect();
+            let mover_txt_b = if mv.side == "black" { "黑方" } else { "红方" };
+            // 预览卡: 分歧点局面 + 每个备选画绿色箭头示意; 解说词用户自定义优先
+            let preview_sub = mv.branch_preview_comment.trim().to_string();
+            let preview_sub = if preview_sub.is_empty() {
+                format!(
+                    "第 {} 手 {} 之前, {} 另有 {} 种选择: {}。我们先看这些变招。",
+                    i + 1,
+                    mv.notation,
+                    mover_txt_b,
+                    alts.len(),
+                    alts.join("、")
+                )
+            } else {
+                preview_sub
+            };
+            let annotations = mv
+                .branches
+                .iter()
+                .filter_map(|b| {
+                    let from = parse_point(&b.moves.first()?.iccs[0..2])?;
+                    let to = parse_point(&b.moves.first()?.iccs[2..4])?;
+                    Some(SceneAnnotation {
+                        kind: AnnotationKind::Arrow,
+                        from,
+                        to: Some(to),
+                        color: AnnotationColor::Green,
+                    })
+                })
+                .collect();
+            scenes.push(FrameScene {
+                board_before: before,
+                board_after: before,
+                move_iccs: None,
+                title: params.title.trim().to_string(),
+                headline: params.subtitle.trim().to_string(),
+                current_move: Some(format!("第 {} 手 · {} 种变招", i + 1, alts.len())),
+                info_lines: vec![],
+                subtitle: preview_sub.clone(),
+                subtitles: split_subtitle(&preview_sub, SUBTITLE_MAX_CHARS),
+                check_pos: None,
+                annotations,
+                cyan_marks: false,
+            });
+            // 每个变招逐手演示: 每手一个走子场景(青色标记), 解说词逐手自定义(空 = 自动模板)
+            for b in &mv.branches {
+                let total = b.moves.len();
+                let mut cur = before;
+                for (k, m) in b.moves.iter().enumerate() {
+                    let after_m = apply_iccs(&cur, &m.iccs);
+                    let custom = b.comments.get(k).map(|s| s.trim()).unwrap_or("");
+                    let demo_sub = if !custom.is_empty() {
+                        custom.to_string()
+                    } else if total == 1 {
+                        format!("先看变招: {}, 再回到主线 {}。", m.notation, mv.notation)
+                    } else if k == 0 {
+                        format!("先看变招: {}。", m.notation)
+                    } else if k == total - 1 {
+                        format!("最后走 {}。看完回到主线 {}。", m.notation, mv.notation)
+                    } else {
+                        format!("接着走 {}。", m.notation)
+                    };
+                    scenes.push(FrameScene {
+                        board_before: cur,
+                        board_after: after_m,
+                        move_iccs: Some(m.iccs.clone()),
+                        title: params.title.trim().to_string(),
+                        headline: String::new(),
+                        current_move: Some(format!("变招 · {} {}", mover_txt_b, m.notation)),
+                        info_lines: vec![],
+                        subtitle: demo_sub.clone(),
+                        subtitles: split_subtitle(&demo_sub, SUBTITLE_MAX_CHARS),
+                        check_pos: None,
+                        annotations: vec![],
+                        cyan_marks: true,
+                    });
+                    cur = after_m;
+                }
+            }
+        }
+
+        // 主线走子场景
         let (after, turn_after) = fen_to_board(&mv.fen_after)?;
         let mover_txt = if mv.side == "black" { "黑方" } else { "红方" };
         // 将军警示圈标注被将一方(走完后轮到的一方)的将/帅
@@ -164,6 +255,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
             subtitles: split_subtitle(narration, SUBTITLE_MAX_CHARS),
             check_pos,
             annotations: to_scene_annotations(&mv.annotations),
+            cyan_marks: false,
         });
     }
 
@@ -187,6 +279,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
         subtitles: split_subtitle(outro_sub, SUBTITLE_MAX_CHARS),
         check_pos: None,
         annotations: vec![],
+        cyan_marks: false,
     });
     Ok(scenes)
 }
@@ -219,6 +312,7 @@ pub fn generate(
     stop: &AtomicBool,
     progress: &dyn Fn(VideoProgress),
 ) -> Result<VideoOutcome, String> {
+    let started = std::time::Instant::now();
     let stopped = || stop.load(Ordering::Relaxed);
 
     // 1. 场景构建
@@ -372,6 +466,7 @@ pub fn generate(
         move_count: params.moves.len(),
         video_path: video_path.to_string_lossy().into_owned(),
         cover_path: cover_path.to_string_lossy().into_owned(),
+        elapsed_secs: started.elapsed().as_secs_f64(),
     };
     if let Err(e) = library::save_meta(out_root, &meta) {
         eprintln!("[chessdrill] 视频元数据入库失败(视频已生成): {e}");
@@ -390,6 +485,7 @@ pub fn generate(
         duration_secs: duration,
         size_bytes,
         move_count: params.moves.len(),
+        elapsed_secs: started.elapsed().as_secs_f64(),
     })
 }
 
@@ -412,6 +508,8 @@ mod tests {
                     side: "red".into(),
                     check: false,
                     annotations: vec![],
+                    branches: vec![],
+                    branch_preview_comment: String::new(),
                 },
             ],
             narration: vec!["红方跳马".into()],
@@ -446,6 +544,7 @@ mod tests {
             subtitles: vec![],
             check_pos: None,
             annotations: vec![],
+            cyan_marks: false,
         };
         // 有配音
         assert!((scene_duration(&scene, Some(2.0)) - (LEAD + 2.0 + TAIL)).abs() < 1e-9);

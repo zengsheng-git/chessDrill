@@ -19,6 +19,9 @@ pub struct VideoMeta {
     pub move_count: usize,
     pub video_path: String,
     pub cover_path: String,
+    /// 生成耗时(秒; 旧 meta 无此字段)
+    #[serde(default)]
+    pub elapsed_secs: f64,
 }
 
 pub fn videos_dir(base: &Path) -> PathBuf {

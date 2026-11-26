@@ -211,9 +211,12 @@ export default function VideoPage({ onExit }: { onExit: () => void }) {
               autoPlay
               className="max-h-[52vh] w-full rounded-lg border border-ink-700"
             />
-            <div className="shrink-0 text-[10px] text-ink-400">
+            <div className="shrink-0 text-[10px] leading-4 text-ink-400">
               {playing.move_count} 手 · {fmtDuration(playing.duration_secs)} · {fmtSize(playing.size_bytes)} ·{" "}
               {fmtDate(playing.created_ms)}
+              {playing.elapsed_secs > 0 && (
+                <div>生成耗时 {fmtDuration(playing.elapsed_secs)}</div>
+              )}
             </div>
             <div className="flex shrink-0 gap-2">
               <button

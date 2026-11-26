@@ -44,6 +44,23 @@ pub struct AnnotationDto {
     pub color: String,
 }
 
+/// 变招演示的逐手着法(变招线主线, 含备选本身与后续/对方应手)
+#[derive(Debug, Deserialize)]
+pub struct BranchMoveDto {
+    pub iccs: String,
+    pub notation: String,
+}
+
+/// 变招演示(用户在导出对话框勾选的分支备选): 按变招线逐手真实走子后回退
+#[derive(Debug, Deserialize)]
+pub struct BranchDemoDto {
+    /// 变招线逐手着法(首手为备选本身)
+    pub moves: Vec<BranchMoveDto>,
+    /// 逐手自定义解说词(与 moves 等长, 空串 = 该手用自动模板)
+    #[serde(default)]
+    pub comments: Vec<String>,
+}
+
 /// 一手走子(前端推演产出, 棋规留在前端, Rust 端只做渲染)
 #[derive(Debug, Deserialize)]
 pub struct VideoMoveStep {
@@ -63,6 +80,12 @@ pub struct VideoMoveStep {
     /// 该手棋盘标注
     #[serde(default)]
     pub annotations: Vec<AnnotationDto>,
+    /// 该手之前的变招演示(用户勾选的分支备选)
+    #[serde(default)]
+    pub branches: Vec<BranchDemoDto>,
+    /// 变招预览卡自定义解说词(空 = 用自动模板)
+    #[serde(default)]
+    pub branch_preview_comment: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +133,8 @@ pub struct VideoOutcome {
     pub duration_secs: f64,
     pub size_bytes: u64,
     pub move_count: usize,
+    /// 生成耗时(秒)
+    pub elapsed_secs: f64,
 }
 
 /// 单任务槽 + 取消标志

@@ -10,6 +10,19 @@ export interface VideoAnnotation {
   color: "red" | "green";
 }
 
+/** 变招演示的一手(变招线主线, 首手为备选本身, 其余为后续/对方应手) */
+export interface VideoBranchMove {
+  iccs: string;
+  notation: string;
+}
+
+/** 变招演示(该手之前, 按变招线逐手真实走子后回退) */
+export interface VideoBranchDemo {
+  moves: VideoBranchMove[];
+  /** 逐手自定义解说词(与 moves 等长, 空串 = 该手用自动模板) */
+  comments?: string[];
+}
+
 /** 一手走子(Rust 端渲染所需) */
 export interface VideoMoveStep {
   /** 走子前局面 FEN */
@@ -26,6 +39,36 @@ export interface VideoMoveStep {
   check: boolean;
   /** 该手棋盘标注 */
   annotations?: VideoAnnotation[];
+  /** 该手之前的变招演示(用户勾选) */
+  branches?: VideoBranchDemo[];
+  /** 变招预览卡自定义解说词(空 = 自动模板) */
+  branch_preview_comment?: string;
+}
+
+/** 变招选择配置: 勾选 + 演示手数 + 自定义解说词 */
+export interface BranchConfig {
+  /** 分歧点 moveIndex → 勾选的备选 iccs 列表 */
+  picks: Record<number, string[]>;
+  /** 分歧点 moveIndex → 演示手数(0 = 全部; 缺省 = 2) */
+  lineLens: Record<number, number>;
+  /** 演示卡自定义解说词, key = `${moveIndex}:${iccs}`(空 = 自动模板) */
+  altComments: Record<string, string>;
+  /** 预览卡自定义解说词, key = moveIndex(空 = 自动模板) */
+  previewComments: Record<number, string>;
+}
+
+/** 棋谱分歧点信息(导出对话框供用户勾选变招) */
+export interface BranchPointInfo {
+  /** 主线手序号(分歧发生在走这手之前) */
+  moveIndex: number;
+  /** 主线着法 */
+  mainline: { iccs: string; notation: string };
+  /** 备选(不含主线), line = 该变招线主线全部着法(首手为备选本身) */
+  alternatives: {
+    iccs: string;
+    notation: string;
+    line: { iccs: string; notation: string }[];
+  }[];
 }
 
 export interface GenerateVideoParams {
@@ -59,6 +102,8 @@ export interface VideoOutcome {
   duration_secs: number;
   size_bytes: number;
   move_count: number;
+  /** 生成耗时(秒) */
+  elapsed_secs: number;
 }
 
 /** 视频库条目(Rust 端 VideoMeta) */
@@ -72,6 +117,8 @@ export interface VideoMetaDto {
   move_count: number;
   video_path: string;
   cover_path: string;
+  /** 生成耗时(秒; 旧条目为 0 不显示) */
+  elapsed_secs: number;
 }
 
 /** 导出数据源(由入口构造) */
@@ -80,6 +127,8 @@ export interface VideoSource {
   subtitle: string;
   moves: VideoMoveStep[];
   endsMate: boolean;
+  /** 棋谱分歧点(仅复盘来源; 练习来源为空) */
+  branchPoints: BranchPointInfo[];
 }
 
 export type VideoSourceLoader = () => Promise<VideoSource>;
