@@ -147,6 +147,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
     });
 
     // 走子场景(该手勾选了变招时, 先插"变招预览卡"与每变招"真实走子演示卡")
+    let mut branch_review_scenes: Vec<FrameScene> = Vec::new(); // 片尾变招回看段(主线全部讲完之后)
     for (i, mv) in params.moves.iter().enumerate() {
         let (before, _) = fen_to_board(&mv.fen_before)?;
 
@@ -198,49 +199,6 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
             });
         }
 
-        // 变招逐手演示(在主线之前): 备选与主线是同一步的互斥选择, 从分歧点局面出发, 走完回退再走主线
-        if !mv.branches.is_empty() {
-            let mover_txt_b = if mv.side == "black" { "黑方" } else { "红方" };
-            for b in &mv.branches {
-                let total = b.moves.len();
-                let mut cur = before;
-                for (k, m) in b.moves.iter().enumerate() {
-                    let after_m = apply_iccs(&cur, &m.iccs);
-                    let custom = b.comments.get(k).map(|s| s.trim()).unwrap_or("");
-                    let demo_sub = if !custom.is_empty() {
-                        custom.to_string()
-                    } else if total == 1 {
-                        format!("先看变招: {}, 然后走主线 {}。", m.notation, mv.notation)
-                    } else if k == 0 {
-                        format!("先看变招: {}。", m.notation)
-                    } else if k == total - 1 {
-                        format!("最后走 {}。看完走主线 {}。", m.notation, mv.notation)
-                    } else {
-                        format!("接着走 {}。", m.notation)
-                    };
-                    scenes.push(FrameScene {
-                        board_before: cur,
-                        board_after: after_m,
-                        move_iccs: Some(m.iccs.clone()),
-                        title: params.title.trim().to_string(),
-                        headline: String::new(),
-                        current_move: Some(format!("变招 · {} {}", mover_txt_b, m.notation)),
-                        info_lines: vec![],
-                        subtitle: demo_sub.clone(),
-                        subtitles: split_subtitle(&demo_sub, SUBTITLE_MAX_CHARS),
-                        check_pos: None,
-                        annotations: b
-                            .annotations
-                            .get(k)
-                            .map(|list| to_scene_annotations(list))
-                            .unwrap_or_default(),
-                        cyan_marks: true,
-                    });
-                    cur = after_m;
-                }
-            }
-        }
-
         // 主线走子场景
         let (after, turn_after) = fen_to_board(&mv.fen_after)?;
         let mover_txt = if mv.side == "black" { "黑方" } else { "红方" };
@@ -261,7 +219,53 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
             annotations: to_scene_annotations(&mv.annotations),
             cyan_marks: false,
         });
+
+        // 变招逐手演示(不进入主线叙事, 统一追加到片尾"变招回看"段): 青色标记, 解说词逐手自定义(空 = 自动模板)
+        if !mv.branches.is_empty() {
+            let mover_txt_b = if mv.side == "black" { "黑方" } else { "红方" };
+            for b in &mv.branches {
+                let total = b.moves.len();
+                let mut cur = before;
+                for (k, m) in b.moves.iter().enumerate() {
+                    let after_m = apply_iccs(&cur, &m.iccs);
+                    let custom = b.comments.get(k).map(|s| s.trim()).unwrap_or("");
+                    let demo_sub = if !custom.is_empty() {
+                        custom.to_string()
+                    } else if total == 1 {
+                        format!("回看变招: 若当时走 {}。", m.notation)
+                    } else if k == 0 {
+                        format!("回看变招: 若当时走 {}。", m.notation)
+                    } else if k == total - 1 {
+                        format!("变招最后 {}。回看结束。", m.notation)
+                    } else {
+                        format!("变招接着 {}。", m.notation)
+                    };
+                    branch_review_scenes.push(FrameScene {
+                        board_before: cur,
+                        board_after: after_m,
+                        move_iccs: Some(m.iccs.clone()),
+                        title: params.title.trim().to_string(),
+                        headline: String::new(),
+                        current_move: Some(format!("回看变招 · {} {}", mover_txt_b, m.notation)),
+                        info_lines: vec![],
+                        subtitle: demo_sub.clone(),
+                        subtitles: split_subtitle(&demo_sub, SUBTITLE_MAX_CHARS),
+                        check_pos: None,
+                        annotations: b
+                            .annotations
+                            .get(k)
+                            .map(|list| to_scene_annotations(list))
+                            .unwrap_or_default(),
+                        cyan_marks: true,
+                    });
+                    cur = after_m;
+                }
+            }
+        }
     }
+
+    // 片尾变招回看段: 主线全部讲完之后、结尾卡之前, 依次回放各分歧点的变招
+    scenes.extend(branch_review_scenes);
 
     // 结尾卡: 终局局面
     let last = params.moves.last().expect("moves 非空已校验");

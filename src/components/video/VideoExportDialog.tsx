@@ -368,6 +368,7 @@ export default function VideoExportDialog({
 
                   {(voiceMode === "custom" ||
                     annotations.some((a) => a.length > 0) ||
+                    Object.values(branchConfig.picks).some((l) => l.length > 0) ||
                     Object.values(branchConfig.altComments).some((v) => v) ||
                     Object.values(branchConfig.previewComments).some((v) => v)) && (
                     <div className="flex flex-col gap-1">
@@ -385,16 +386,10 @@ export default function VideoExportDialog({
                           const rawLen = branchConfig.lineLens[i];
                           const branchLen =
                             rawLen === undefined ? Math.min(2, maxLine) : rawLen === 0 ? maxLine : Math.min(rawLen, maxLine);
-                          const hasBranchInputs =
-                            pickedAlts.length > 0 &&
-                            (voiceMode === "custom" ||
-                              branchConfig.previewComments[i] ||
-                              pickedAlts.some((a) =>
-                                a.line.slice(0, branchLen).some((_, k) => branchConfig.altComments[`${i}:${a.iccs}:${k}`] || (branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0),
-                              ));
+                          const hasBranchInputs = pickedAlts.length > 0;
                           return (
                             <Fragment key={i}>
-                              {/* 变招解说词/标注行: 视频顺序为 预览→变招→主线, 所以排在主线行之前 */}
+                              {/* 变招解说词/标注行(第 i 手之前的分叉决策, 分组显示在主线行上方) */}
                               {hasBranchInputs && (
                                 <>
                                   <div className="flex items-center gap-1.5 border-b border-ink-700 bg-ink-850/60 px-1.5 py-1 pl-7">
@@ -439,10 +434,10 @@ export default function VideoExportDialog({
                                           }
                                           placeholder={
                                             k === 0
-                                              ? "首手解说词（留空用自动：先看变招…）"
+                                              ? "首手解说词（留空用自动：回看变招…）"
                                               : k === a.line.slice(0, branchLen).length - 1
-                                                ? "末手解说词（留空用自动：最后走…）"
-                                                : "解说词（留空用自动：接着走…）"
+                                                ? "末手解说词（留空用自动：变招最后…）"
+                                                : "解说词（留空用自动：变招接着…）"
                                           }
                                           maxLength={120}
                                           className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
@@ -468,8 +463,7 @@ export default function VideoExportDialog({
                                   )}
                                 </>
                               )}
-
-                              {/* 主线走子行(变招演示之后) */}
+                              {/* 主线走子行 */}
                               <div className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1">
                                 <span className="w-10 shrink-0 text-right text-[10px] text-ink-400">{i + 1}</span>
                                 <span className="w-20 shrink-0 truncate text-[11px] text-ink-300" title={`${m.side === "red" ? "红" : "黑"} ${m.notation}`}>
