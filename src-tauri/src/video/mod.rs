@@ -59,6 +59,9 @@ pub struct BranchDemoDto {
     /// 逐手自定义解说词(与 moves 等长, 空串 = 该手用自动模板)
     #[serde(default)]
     pub comments: Vec<String>,
+    /// 逐手棋盘标注(与 moves 等长, 每手一个标注列表)
+    #[serde(default)]
+    pub annotations: Vec<Vec<AnnotationDto>>,
 }
 
 /// 一手走子(前端推演产出, 棋规留在前端, Rust 端只做渲染)

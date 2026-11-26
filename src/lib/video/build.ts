@@ -56,22 +56,26 @@ export function sourceFromGame(game: ParsedGame): VideoSource {
     // 多分支局面: 记录全部备选(不含主线); 变招线只取差异部分——走到与主线局面重新汇合为止
     // (棋谱变着树常在变化结束后复制一份共同后续, 那部分与主线重复, 不进视频)
     if (list.length > 1) {
+      const moveIndex = idx;
+      const fenBefore = mainFens.length > 0 ? mainFens[moveIndex - 1] : game.startFen;
       branchPoints.push({
-        moveIndex: idx,
+        moveIndex,
         mainline: { iccs: node.iccs, notation: node.notation },
         alternatives: list.slice(1).map((alt) => {
-          const lineAlt = [{ iccs: alt.iccs, notation: alt.notation }];
+          // 采集差异着法序列
+          const alts: string[] = [alt.iccs];
           let sub = alt.children[0];
           let j = 0;
           while (sub) {
             j += 1;
-            // 走完这手后若与主线对应局面相同 => 已汇合, 停止(不含此手)
-            const mainFen = mainFens[idx + j - 1];
+            const mainFen = mainFens[moveIndex + j - 1];
             if (mainFen && isSameBoardFen(sub.fen, mainFen)) break;
-            lineAlt.push({ iccs: sub.iccs, notation: sub.notation });
+            alts.push(sub.iccs);
             sub = sub.children[0];
           }
-          return { iccs: alt.iccs, notation: alt.notation, line: lineAlt };
+          // 前端推演出该变招线每手的局面/记谱/将军信息, 供标注编辑与渲染
+          const { steps } = stepsFromLine(fenBefore, alts);
+          return { iccs: alt.iccs, notation: alt.notation, line: steps };
         }),
       });
     }

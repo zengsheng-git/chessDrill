@@ -101,6 +101,7 @@ mod tests {
                     move_count: 1,
                     video_path: "a".into(),
                     cover_path: "b".into(),
+                    elapsed_secs: 0.0,
                 },
             )
             .unwrap();

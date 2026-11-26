@@ -44,7 +44,14 @@ export default function VideoExportDialog({
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("auto");
   const [narrations, setNarrations] = useState<string[]>([]);
   const [annotations, setAnnotations] = useState<VideoAnnotation[][]>([]);
-  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  /** 当前标注编辑目标: altIccs/k 为空 = 主线手, 否则 = 变招线第 k 手 */
+  const [editingTarget, setEditingTarget] = useState<{
+    moveIdx: number;
+    altIccs: string | null;
+    k: number;
+  } | null>(null);
+  /** 变招逐手标注: key = `${moveIdx}:${altIccs}:${k}` */
+  const [branchAnnotations, setBranchAnnotations] = useState<Record<string, VideoAnnotation[]>>({});
   /** 变招配置: 勾选 + 演示手数 + 自定义解说词 */
   const [branchConfig, setBranchConfig] = useState<BranchConfig>({
     picks: {},
@@ -118,7 +125,7 @@ export default function VideoExportDialog({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // 标注编辑浮层打开期间, Esc 由浮层自己处理(捕获阶段)
-      if (editingIdx !== null) return;
+      if (editingTarget !== null) return;
       if (e.key === "Escape" && closable) {
         e.preventDefault();
         onClose();
@@ -126,7 +133,7 @@ export default function VideoExportDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closable, onClose, editingIdx]);
+  }, [closable, onClose, editingTarget]);
 
   const start = () => {
     if (!source) return;
@@ -156,6 +163,7 @@ export default function VideoExportDialog({
                 .map((a) => ({
                   moves: a.line.slice(0, len),
                   comments: a.line.slice(0, len).map((_, k) => branchConfig.altComments[`${i}:${a.iccs}:${k}`] ?? ""),
+                  annotations: a.line.slice(0, len).map((_, k) => branchAnnotations[`${i}:${a.iccs}:${k}`] ?? []),
                 }))
             : [];
         return {
@@ -271,7 +279,7 @@ export default function VideoExportDialog({
                     </button>
                   )}
                   <button
-                    onClick={() => setEditingIdx(0)}
+                    onClick={() => setEditingTarget({ moveIdx: 0, altIccs: null, k: -1 })}
                     title="在第 1 手开始添加棋盘标注（圈注/箭头）"
                     className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
                       annotations.some((a) => a.length > 0)
@@ -382,40 +390,11 @@ export default function VideoExportDialog({
                             (voiceMode === "custom" ||
                               branchConfig.previewComments[i] ||
                               pickedAlts.some((a) =>
-                                a.line.slice(0, branchLen).some((_, k) => branchConfig.altComments[`${i}:${a.iccs}:${k}`]),
+                                a.line.slice(0, branchLen).some((_, k) => branchConfig.altComments[`${i}:${a.iccs}:${k}`] || (branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0),
                               ));
                           return (
                             <Fragment key={i}>
-                              <div className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1">
-                                <span className="w-10 shrink-0 text-right text-[10px] text-ink-400">{i + 1}</span>
-                                <span className="w-20 shrink-0 truncate text-[11px] text-ink-300" title={`${m.side === "red" ? "红" : "黑"} ${m.notation}`}>
-                                  {m.notation}
-                                </span>
-                                {voiceMode === "custom" ? (
-                                  <input
-                                    value={narrations[i] ?? ""}
-                                    onChange={(e) =>
-                                      setNarrations((arr) => arr.map((v, j) => (j === i ? e.target.value : v)))
-                                    }
-                                    className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
-                                    maxLength={120}
-                                  />
-                                ) : (
-                                  <span className="min-w-0 flex-1 text-center text-[10px] text-ink-400">自动解说</span>
-                                )}
-                                <button
-                                  onClick={() => setEditingIdx(i)}
-                                  title={`第 ${i + 1} 手棋盘标注`}
-                                  className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
-                                    (annotations[i]?.length ?? 0) > 0
-                                      ? "font-medium text-emerald-600"
-                                      : "text-ink-400 hover:text-ink-200"
-                                  }`}
-                                >
-                                  📌{(annotations[i]?.length ?? 0) > 0 ? annotations[i]!.length : ""}
-                                </button>
-                              </div>
-                              {/* 变招解说词行(该手勾选了变招时, 统一在此编辑) */}
+                              {/* 变招解说词/标注行: 视频顺序为 预览→变招→主线, 所以排在主线行之前 */}
                               {hasBranchInputs && (
                                 <>
                                   <div className="flex items-center gap-1.5 border-b border-ink-700 bg-ink-850/60 px-1.5 py-1 pl-7">
@@ -468,11 +447,58 @@ export default function VideoExportDialog({
                                           maxLength={120}
                                           className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
                                         />
+                                        <button
+                                          onClick={() =>
+                                            setEditingTarget({ moveIdx: i, altIccs: a.iccs, k })
+                                          }
+                                          title={`变招第 ${k + 1} 手棋盘标注`}
+                                          className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
+                                            (branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0
+                                              ? "font-medium text-emerald-600"
+                                              : "text-ink-400 hover:text-ink-200"
+                                          }`}
+                                        >
+                                          📌
+                                          {(branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0
+                                            ? branchAnnotations[`${i}:${a.iccs}:${k}`]!.length
+                                            : ""}
+                                        </button>
                                       </div>
                                     )),
                                   )}
                                 </>
                               )}
+
+                              {/* 主线走子行(变招演示之后) */}
+                              <div className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1">
+                                <span className="w-10 shrink-0 text-right text-[10px] text-ink-400">{i + 1}</span>
+                                <span className="w-20 shrink-0 truncate text-[11px] text-ink-300" title={`${m.side === "red" ? "红" : "黑"} ${m.notation}`}>
+                                  {m.notation}
+                                </span>
+                                {voiceMode === "custom" ? (
+                                  <input
+                                    value={narrations[i] ?? ""}
+                                    onChange={(e) =>
+                                      setNarrations((arr) => arr.map((v, j) => (j === i ? e.target.value : v)))
+                                    }
+                                    className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
+                                    maxLength={120}
+                                  />
+                                ) : (
+                                  <span className="min-w-0 flex-1 text-center text-[10px] text-ink-400">自动解说</span>
+                                )}
+                                <button
+                                  onClick={() => setEditingTarget({ moveIdx: i, altIccs: null, k: -1 })}
+                                  title={`第 ${i + 1} 手棋盘标注`}
+                                  className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
+                                    (annotations[i]?.length ?? 0) > 0
+                                      ? "font-medium text-emerald-600"
+                                      : "text-ink-400 hover:text-ink-200"
+                                  }`}
+                                >
+                                  📌{(annotations[i]?.length ?? 0) > 0 ? annotations[i]!.length : ""}
+                                </button>
+                              </div>
                             </Fragment>
                           );
                         })}
@@ -570,17 +596,38 @@ export default function VideoExportDialog({
         )}
       </div>
 
-      {/* 标注编辑浮层(独立于配音模式, 编辑该手棋盘圈注/箭头) */}
-      {editingIdx !== null && source && source.moves[editingIdx] && (
-        <AnnotationEditor
-          fenAfter={source.moves[editingIdx]!.fen_after}
-          annotations={annotations[editingIdx] ?? []}
-          onChange={(list) =>
-            setAnnotations((arr) => arr.map((v, j) => (j === editingIdx ? list : v)))
-          }
-          onClose={() => setEditingIdx(null)}
-        />
-      )}
+      {/* 标注编辑浮层(主线手 / 变招手通用) */}
+      {editingTarget !== null &&
+        source &&
+        (editingTarget.altIccs === null ? (
+          <AnnotationEditor
+            fenAfter={source.moves[editingTarget.moveIdx]!.fen_after}
+            annotations={annotations[editingTarget.moveIdx] ?? []}
+            onChange={(list) =>
+              setAnnotations((arr) => arr.map((v, j) => (j === editingTarget.moveIdx ? list : v)))
+            }
+            onClose={() => setEditingTarget(null)}
+          />
+        ) : (
+          (() => {
+            const key = `${editingTarget.moveIdx}:${editingTarget.altIccs}:${editingTarget.k}`;
+            const alt = source.branchPoints
+              .find((p) => p.moveIndex === editingTarget.moveIdx)
+              ?.alternatives.find((a) => a.iccs === editingTarget.altIccs);
+            const fenAfter = alt?.line[editingTarget.k]?.fen_after;
+            if (!fenAfter) return null;
+            return (
+              <AnnotationEditor
+                fenAfter={fenAfter}
+                annotations={branchAnnotations[key] ?? []}
+                onChange={(list) =>
+                  setBranchAnnotations((map) => ({ ...map, [key]: list }))
+                }
+                onClose={() => setEditingTarget(null)}
+              />
+            );
+          })()
+        ))}
 
       {/* 变招勾选浮层(仅复盘棋谱来源) */}
       {branchPickerOpen && source && (

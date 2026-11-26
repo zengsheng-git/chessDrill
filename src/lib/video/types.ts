@@ -21,6 +21,8 @@ export interface VideoBranchDemo {
   moves: VideoBranchMove[];
   /** 逐手自定义解说词(与 moves 等长, 空串 = 该手用自动模板) */
   comments?: string[];
+  /** 逐手棋盘标注(与 moves 等长; 每手一个标注列表) */
+  annotations?: VideoAnnotation[][];
 }
 
 /** 一手走子(Rust 端渲染所需) */
@@ -63,11 +65,11 @@ export interface BranchPointInfo {
   moveIndex: number;
   /** 主线着法 */
   mainline: { iccs: string; notation: string };
-  /** 备选(不含主线), line = 该变招线主线全部着法(首手为备选本身) */
+  /** 备选(不含主线), line = 该变招线全部着法(首手为备选本身, 含每手局面供标注编辑) */
   alternatives: {
     iccs: string;
     notation: string;
-    line: { iccs: string; notation: string }[];
+    line: VideoMoveStep[];
   }[];
 }
 

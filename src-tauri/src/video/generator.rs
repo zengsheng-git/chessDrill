@@ -150,7 +150,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
     for (i, mv) in params.moves.iter().enumerate() {
         let (before, _) = fen_to_board(&mv.fen_before)?;
 
-        // 变招场景
+        // 变招预览卡: 主线箭头(绿) + 各变招箭头(红)对比, 观众先看清分叉; 再走主线, 最后逐手演示变招
         if !mv.branches.is_empty() {
             let alts: Vec<String> = mv
                 .branches
@@ -158,41 +158,37 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
                 .map(|b| b.moves.first().map(|m| m.notation.clone()).unwrap_or_default())
                 .collect();
             let mover_txt_b = if mv.side == "black" { "黑方" } else { "红方" };
-            // 预览卡: 分歧点局面 + 每个备选画绿色箭头示意; 解说词用户自定义优先
             let preview_sub = mv.branch_preview_comment.trim().to_string();
             let preview_sub = if preview_sub.is_empty() {
                 format!(
-                    "第 {} 手 {} 之前, {} 另有 {} 种选择: {}。我们先看这些变招。",
-                    i + 1,
-                    mv.notation,
-                    mover_txt_b,
-                    alts.len(),
-                    alts.join("、")
+                    "主线走 {}. {} 另有变招 {}. 我们先看变招, 再走主线。",
+                    mv.notation, mover_txt_b, alts.join("、")
                 )
             } else {
                 preview_sub
             };
-            let annotations = mv
-                .branches
-                .iter()
-                .filter_map(|b| {
-                    let from = parse_point(&b.moves.first()?.iccs[0..2])?;
-                    let to = parse_point(&b.moves.first()?.iccs[2..4])?;
-                    Some(SceneAnnotation {
-                        kind: AnnotationKind::Arrow,
-                        from,
-                        to: Some(to),
-                        color: AnnotationColor::Green,
-                    })
+            let mut annotations = vec![SceneAnnotation {
+                kind: AnnotationKind::Arrow,
+                from: parse_point(&mv.iccs[0..2]).expect("主线 iccs 起点"),
+                to: Some(parse_point(&mv.iccs[2..4]).expect("主线 iccs 落点")),
+                color: AnnotationColor::Green,
+            }];
+            annotations.extend(mv.branches.iter().filter_map(|b| {
+                let first = b.moves.first()?;
+                Some(SceneAnnotation {
+                    kind: AnnotationKind::Arrow,
+                    from: parse_point(&first.iccs[0..2])?,
+                    to: Some(parse_point(&first.iccs[2..4])?),
+                    color: AnnotationColor::Red,
                 })
-                .collect();
+            }));
             scenes.push(FrameScene {
                 board_before: before,
                 board_after: before,
                 move_iccs: None,
                 title: params.title.trim().to_string(),
                 headline: params.subtitle.trim().to_string(),
-                current_move: Some(format!("第 {} 手 · {} 种变招", i + 1, alts.len())),
+                current_move: Some(format!("第 {} 手 · 主线与变招对比", i + 1)),
                 info_lines: vec![],
                 subtitle: preview_sub.clone(),
                 subtitles: split_subtitle(&preview_sub, SUBTITLE_MAX_CHARS),
@@ -200,7 +196,11 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
                 annotations,
                 cyan_marks: false,
             });
-            // 每个变招逐手演示: 每手一个走子场景(青色标记), 解说词逐手自定义(空 = 自动模板)
+        }
+
+        // 变招逐手演示(在主线之前): 备选与主线是同一步的互斥选择, 从分歧点局面出发, 走完回退再走主线
+        if !mv.branches.is_empty() {
+            let mover_txt_b = if mv.side == "black" { "黑方" } else { "红方" };
             for b in &mv.branches {
                 let total = b.moves.len();
                 let mut cur = before;
@@ -210,11 +210,11 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
                     let demo_sub = if !custom.is_empty() {
                         custom.to_string()
                     } else if total == 1 {
-                        format!("先看变招: {}, 再回到主线 {}。", m.notation, mv.notation)
+                        format!("先看变招: {}, 然后走主线 {}。", m.notation, mv.notation)
                     } else if k == 0 {
                         format!("先看变招: {}。", m.notation)
                     } else if k == total - 1 {
-                        format!("最后走 {}。看完回到主线 {}。", m.notation, mv.notation)
+                        format!("最后走 {}。看完走主线 {}。", m.notation, mv.notation)
                     } else {
                         format!("接着走 {}。", m.notation)
                     };
@@ -229,7 +229,11 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
                         subtitle: demo_sub.clone(),
                         subtitles: split_subtitle(&demo_sub, SUBTITLE_MAX_CHARS),
                         check_pos: None,
-                        annotations: vec![],
+                        annotations: b
+                            .annotations
+                            .get(k)
+                            .map(|list| to_scene_annotations(list))
+                            .unwrap_or_default(),
                         cyan_marks: true,
                     });
                     cur = after_m;
