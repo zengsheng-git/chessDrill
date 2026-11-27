@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import ConfirmDialog from "../common/ConfirmDialog";
+import VideoExportDialog from "./VideoExportDialog";
+import ScreenshotDialog from "./ScreenshotDialog";
+import { sourceFromQuestion } from "../../lib/video/build";
 import {
   deleteVideo,
   listVideos,
@@ -37,6 +40,9 @@ export default function VideoPage({ onExit }: { onExit: () => void }) {
   const [playing, setPlaying] = useState<VideoMetaDto | null>(null);
   const [removing, setRemoving] = useState<VideoMetaDto | null>(null);
   const [saving, setSaving] = useState(false);
+  const [snipOpen, setSnipOpen] = useState(false);
+  /** 截图确认后的导出目标: 打开导出对话框(引擎求解参考线) */
+  const [snipExport, setSnipExport] = useState<{ fen: string; title: string } | null>(null);
 
   const refresh = () => {
     listVideos()
@@ -93,6 +99,9 @@ export default function VideoPage({ onExit }: { onExit: () => void }) {
           {videos && <span className="ml-1 font-normal text-ink-400">共 {videos.length} 个</span>}
         </span>
         <span className="flex-1" />
+        <button onClick={() => setSnipOpen(true)} className={BTN} title="截图识别局面生成解说视频">
+          截图识别
+        </button>
         <button onClick={refresh} className={BTN} title="重新扫描视频库">
           刷新
         </button>
@@ -125,7 +134,9 @@ export default function VideoPage({ onExit }: { onExit: () => void }) {
             <div className="text-[11px] leading-5 text-ink-400">
               去「杀招残局练习」点 <span className="text-ink-300">导视频</span>
               <br />
-              或在「棋谱复盘」工具栏点 <span className="text-ink-300">视频</span> 生成第一个
+              在「棋谱复盘」工具栏点 <span className="text-ink-300">视频</span>
+              <br />
+              或点本页 <span className="text-ink-300">截图识别</span> 从任意棋局截图生成
             </div>
           </div>
         )}
@@ -249,6 +260,25 @@ export default function VideoPage({ onExit }: { onExit: () => void }) {
           confirmText="删除"
           onConfirm={() => remove(removing)}
           onCancel={() => setRemoving(null)}
+        />
+      )}
+
+      {/* 截图识别 → 确认局面后交给导出对话框 */}
+      {snipOpen && (
+        <ScreenshotDialog
+          onClose={() => setSnipOpen(false)}
+          onExport={(fen, title) => {
+            setSnipOpen(false);
+            setSnipExport({ fen, title });
+          }}
+        />
+      )}
+      {snipExport && (
+        <VideoExportDialog
+          loadSource={() =>
+            sourceFromQuestion({ fen: snipExport.fen, title: snipExport.title, subtitle: "" })
+          }
+          onClose={() => setSnipExport(null)}
         />
       )}
     </div>

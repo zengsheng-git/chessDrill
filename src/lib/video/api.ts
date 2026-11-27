@@ -44,3 +44,22 @@ export function listenVideoDone(cb: (o: VideoOutcome) => void): Promise<Unlisten
 export function listenVideoError(cb: (msg: string) => void): Promise<UnlistenFn> {
   return listen<string>("video://error", (e) => cb(e.payload));
 }
+
+/** 截图识别结果(Rust 端 Recognition) */
+export interface Recognition {
+  /** 校正为红方在下后的 FEN(行棋方固定红 w, 由用户确认) */
+  fen: string;
+  /** 是否通过布局合法性校验 */
+  legal: boolean;
+  /** 校验提示 */
+  issues: string[];
+  /** 识别到的棋子数 */
+  pieces_count: number;
+  /** 识别区域 PNG 预览图 base64 */
+  preview_base64: string;
+}
+
+/** 识别一张截图(剪贴板粘贴/本地上传的图片字节) */
+export function recognizeImage(bytes: Uint8Array): Promise<Recognition> {
+  return invoke<Recognition>("recognize_image", { bytes });
+}

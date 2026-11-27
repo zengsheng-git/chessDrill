@@ -23,6 +23,7 @@ mod analysis;
 mod capture;
 mod detect;
 mod engine;
+mod recognize;
 mod recorder;
 mod tiantian;
 mod tiku;
@@ -603,6 +604,7 @@ pub fn run() {
             scan_dirs,
             create_folder,
             capture::list_windows,
+            recognize::recognize_image,
             recorder::start_recording,
             recorder::stop_recording,
             tiantian::fetch_tiantian_qipu,

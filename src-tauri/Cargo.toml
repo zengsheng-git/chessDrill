@@ -34,6 +34,8 @@ imageproc = "0.25"
 ab_glyph = "0.2"
 tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# 截图识别: 预览图 PNG base64
+base64 = "0.22"
 
 [profile.dev]
 incremental = true
