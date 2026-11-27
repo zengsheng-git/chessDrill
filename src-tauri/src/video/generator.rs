@@ -294,11 +294,13 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
     }
 
     // 片尾变招回看段: 主线全部讲完之后、结尾卡之前, 依次回放各分歧点的变招(最后一个变招讲完直接进结尾卡)
+    let review_final = branch_review_scenes.last().map(|s| s.board_after);
     scenes.extend(branch_review_scenes);
 
-    // 结尾卡: 终局局面
+    // 结尾卡: 终局局面; 有变招回看段时用最后一个变招演示的终面, 不再跳回主线终局
     let last = params.moves.last().expect("moves 非空已校验");
-    let (final_board, _) = fen_to_board(&last.fen_after)?;
+    let (mainline_final, _) = fen_to_board(&last.fen_after)?;
+    let final_board = review_final.unwrap_or(mainline_final);
     let outro_sub = params.outro_narration.trim();
     let mut outro_info = vec![format!("共 {} 手", params.moves.len())];
     if params.ends_mate {
@@ -618,7 +620,9 @@ mod tests {
         assert!(scenes[5].move_iccs.is_none());
         assert_eq!(scenes[5].subtitle, "看完 炮五平四。回到分叉局面, 再看变招 炮五进四。");
         assert_eq!(scenes[6].current_move.as_deref(), Some("回看变招 · 红方 炮五进四"));
-        // 最后一个变招讲完直接进结尾卡, 不再回预览画面
+        // 最后一个变招讲完直接进结尾卡, 不再回预览画面; 结尾画面用变招终面, 不跳回主线终局
+        assert_eq!(scenes[7].board_before, scenes[6].board_after);
+        assert_ne!(scenes[7].board_before, scenes[2].board_after);
         assert_eq!(scenes[7].info_lines, vec!["共 1 手".to_string()]);
     }
 
