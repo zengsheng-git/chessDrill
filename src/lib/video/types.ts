@@ -45,6 +45,8 @@ export interface VideoMoveStep {
   branches?: VideoBranchDemo[];
   /** 变招预览卡自定义解说词(空 = 自动模板) */
   branch_preview_comment?: string;
+  /** 回看段预览画面卡解说词(与 branches 等长, 各变招演示前; 空 = 自动衔接词) */
+  branch_review_comments?: string[];
 }
 
 /** 变招选择配置: 勾选 + 演示手数 + 自定义解说词 */
@@ -57,6 +59,8 @@ export interface BranchConfig {
   altComments: Record<string, string>;
   /** 预览卡自定义解说词, key = moveIndex(空 = 自动模板) */
   previewComments: Record<number, string>;
+  /** 回看段预览画面卡解说词, key = `${moveIndex}:${bi}`(bi=0..n-1 各变招演示前; 空 = 自动衔接词) */
+  reviewComments: Record<string, string>;
 }
 
 /** 棋谱分歧点信息(导出对话框供用户勾选变招) */

@@ -89,6 +89,9 @@ pub struct VideoMoveStep {
     /// 变招预览卡自定义解说词(空 = 用自动模板)
     #[serde(default)]
     pub branch_preview_comment: String,
+    /// 回看段预览画面卡解说词(与 branches 等长, 各变招演示前; 空 = 自动衔接词)
+    #[serde(default)]
+    pub branch_review_comments: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

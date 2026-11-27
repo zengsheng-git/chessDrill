@@ -34,7 +34,7 @@ export default function AnnotationEditor({
   onChange: (list: VideoAnnotation[]) => void;
   onClose: () => void;
 }) {
-  const [mode, setMode] = useState<Mode>("circle");
+  const [mode, setMode] = useState<Mode>("arrow");
   const [color, setColor] = useState<"red" | "green">("red");
   const [arrowFrom, setArrowFrom] = useState<Pos | null>(null);
 

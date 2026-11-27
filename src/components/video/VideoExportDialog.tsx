@@ -58,6 +58,7 @@ export default function VideoExportDialog({
     lineLens: {},
     altComments: {},
     previewComments: {},
+    reviewComments: {},
   });
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const [introText, setIntroText] = useState("");
@@ -84,6 +85,24 @@ export default function VideoExportDialog({
         setSubtitle(src.subtitle);
         setNarrations(src.moves.map((m) => `${m.side === "red" ? "红方" : "黑方"}${m.notation}`));
         setAnnotations(src.moves.map(() => []));
+        // 变招逐手解说词默认预填; 预览卡解说词不预填——输入框实时显示"已勾选变招"的自动模板, 手动编辑后才算自定义
+        const altComments: Record<string, string> = {};
+        for (const bp of src.branchPoints) {
+          for (const a of bp.alternatives) {
+            const total = a.line.length;
+            a.line.forEach((mv, k) => {
+              altComments[`${bp.moveIndex}:${a.iccs}:${k}`] =
+                total === 1
+                  ? `先看变招: ${mv.notation}, 然后走主线 ${bp.mainline.notation}。`
+                  : k === 0
+                    ? `先看变招: ${mv.notation}。`
+                    : k === total - 1
+                      ? `最后走 ${mv.notation}。看完走主线 ${bp.mainline.notation}。`
+                      : `${mv.side === "red" ? "红方" : "黑方"}${mv.notation}。`;
+            });
+          }
+        }
+        setBranchConfig((cfg) => ({ ...cfg, altComments, previewComments: {} }));
         setIntroText(`${src.title}，我们一起来看这局棋。`);
         setOutroText(src.endsMate ? "绝杀，本局结束，感谢观看。" : "本局演示结束，感谢观看。");
         setPhase("edit");
@@ -166,11 +185,20 @@ export default function VideoExportDialog({
                   annotations: a.line.slice(0, len).map((_, k) => branchAnnotations[`${i}:${a.iccs}:${k}`] ?? []),
                 }))
             : [];
+        // 回看段各预览画面卡解说词: 与 branches 等长(各变招演示前, 留空 = Rust 自动衔接词)
+        const reviewComments =
+          branches.length > 0
+            ? Array.from(
+                { length: branches.length },
+                (_, bi) => branchConfig.reviewComments[`${i}:${bi}`]?.trim() ?? "",
+              )
+            : [];
         return {
           ...m,
           annotations: annotations[i] ?? [],
           branches,
           branch_preview_comment: branches.length > 0 ? (branchConfig.previewComments[i] ?? "") : "",
+          branch_review_comments: reviewComments,
         };
       }),
       narration: auto,
@@ -387,80 +415,121 @@ export default function VideoExportDialog({
                           const branchLen =
                             rawLen === undefined ? Math.min(2, maxLine) : rawLen === 0 ? maxLine : Math.min(rawLen, maxLine);
                           const hasBranchInputs = pickedAlts.length > 0;
+                          // 预览卡自动模板: 只列已勾选的变招(未手动编辑时实时跟随勾选变化, 导出时留空由 Rust 生成同样文案)
+                          const autoPreview =
+                            hasBranchInputs && bp
+                              ? `主线走 ${bp.mainline.notation}。${m.side === "red" ? "红方" : "黑方"}另有变招 ${pickedAlts
+                                  .map((a) => a.notation)
+                                  .join("、")}。我们先看变招, 再走主线。`
+                              : "";
                           return (
                             <Fragment key={i}>
                               {/* 变招解说词/标注行(第 i 手之前的分叉决策, 分组显示在主线行上方) */}
                               {hasBranchInputs && (
                                 <>
-                                  <div className="flex items-center gap-1.5 border-b border-ink-700 bg-ink-850/60 px-1.5 py-1 pl-7">
-                                    <span className="w-16 shrink-0 truncate text-[10px] text-emerald-700" title="变招预览卡解说词">
+                                  <div className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1">
+                                    <span className="w-10 shrink-0" />
+                                    <span className="w-20 shrink-0 truncate text-[10px] text-emerald-700" title="变招预览卡解说词">
                                       ⑂ 预览
                                     </span>
                                     <input
-                                      value={branchConfig.previewComments[i] ?? ""}
+                                      value={branchConfig.previewComments[i] ?? autoPreview}
                                       onChange={(e) =>
                                         setBranchConfig((cfg) => ({
                                           ...cfg,
                                           previewComments: { ...cfg.previewComments, [i]: e.target.value },
                                         }))
                                       }
-                                      placeholder="预览解说词（留空用自动模板）"
+                                      placeholder="预览解说词（清空恢复自动）"
                                       maxLength={120}
                                       className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
                                     />
                                   </div>
-                                  {pickedAlts.map((a) =>
-                                    a.line.slice(0, branchLen).map((mv, k) => (
-                                      <div
-                                        key={`${i}:${a.iccs}:${k}`}
-                                        className="flex items-center gap-1.5 border-b border-ink-700 bg-ink-850/60 px-1.5 py-1 pl-7 last:border-b-0"
-                                      >
+                                  {pickedAlts.map((a, bi) => {
+                                    // 回看段预览卡自动模板: 与 Rust 端回退文案一致(未手动编辑时实时显示, 导出留空由 Rust 生成)
+                                    const prevFirst = bi > 0 ? (pickedAlts[bi - 1]?.line[0]?.notation ?? "") : "";
+                                    const nextFirst = a.line[0]?.notation ?? "";
+                                    const autoReview =
+                                      bi === 0
+                                        ? pickedAlts.length === 1
+                                          ? `主线走 ${m.notation}。下面回看变招 ${nextFirst}。`
+                                          : `主线走 ${m.notation}。下面逐个回看变招, 先看 ${nextFirst}。`
+                                        : `看完 ${prevFirst}。回到分叉局面, 再看变招 ${nextFirst}。`;
+                                    return (
+                                    <Fragment key={a.iccs}>
+                                      {/* 回看段预览画面卡解说词: 该变招演示前回到分叉局面 */}
+                                      <div className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1">
+                                        <span className="w-10 shrink-0" />
                                         <span
-                                          className="w-16 shrink-0 truncate text-[10px] text-emerald-700"
-                                          title={`变招线第 ${k + 1} 手`}
+                                          className="w-20 shrink-0 truncate text-[10px] text-emerald-700"
+                                          title="回看段预览画面卡解说词"
                                         >
-                                          ⑂ {k + 1}/{a.line.slice(0, branchLen).length} {mv.notation}
+                                          ⑂ 回看预览
                                         </span>
                                         <input
-                                          value={branchConfig.altComments[`${i}:${a.iccs}:${k}`] ?? ""}
+                                          value={branchConfig.reviewComments[`${i}:${bi}`] ?? autoReview}
                                           onChange={(e) =>
                                             setBranchConfig((cfg) => ({
                                               ...cfg,
-                                              altComments: {
-                                                ...cfg.altComments,
-                                                [`${i}:${a.iccs}:${k}`]: e.target.value,
+                                              reviewComments: {
+                                                ...cfg.reviewComments,
+                                                [`${i}:${bi}`]: e.target.value,
                                               },
                                             }))
                                           }
-                                          placeholder={
-                                            k === 0
-                                              ? "首手解说词（留空用自动：回看变招…）"
-                                              : k === a.line.slice(0, branchLen).length - 1
-                                                ? "末手解说词（留空用自动：变招最后…）"
-                                                : "解说词（留空用自动：变招接着…）"
-                                          }
+                                          placeholder="回看预览解说词（清空恢复自动）"
                                           maxLength={120}
                                           className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
                                         />
-                                        <button
-                                          onClick={() =>
-                                            setEditingTarget({ moveIdx: i, altIccs: a.iccs, k })
-                                          }
-                                          title={`变招第 ${k + 1} 手棋盘标注`}
-                                          className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
-                                            (branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0
-                                              ? "font-medium text-emerald-600"
-                                              : "text-ink-400 hover:text-ink-200"
-                                          }`}
-                                        >
-                                          📌
-                                          {(branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0
-                                            ? branchAnnotations[`${i}:${a.iccs}:${k}`]!.length
-                                            : ""}
-                                        </button>
                                       </div>
-                                    )),
-                                  )}
+                                      {a.line.slice(0, branchLen).map((mv, k) => (
+                                        <div
+                                          key={`${i}:${a.iccs}:${k}`}
+                                          className="flex items-center gap-1.5 border-b border-ink-700 px-1.5 py-1 last:border-b-0"
+                                        >
+                                          <span className="w-10 shrink-0" />
+                                          <span
+                                            className="w-20 shrink-0 truncate text-[10px] text-emerald-700"
+                                            title={`变招线第 ${k + 1} 手`}
+                                          >
+                                            ⑂ {k + 1}/{a.line.slice(0, branchLen).length} {mv.notation}
+                                          </span>
+                                          <input
+                                            value={branchConfig.altComments[`${i}:${a.iccs}:${k}`] ?? ""}
+                                            onChange={(e) =>
+                                              setBranchConfig((cfg) => ({
+                                                ...cfg,
+                                                altComments: {
+                                                  ...cfg.altComments,
+                                                  [`${i}:${a.iccs}:${k}`]: e.target.value,
+                                                },
+                                              }))
+                                            }
+                                            placeholder="解说词（留空则无解说，与主线相同）"
+                                            maxLength={120}
+                                            className="min-w-0 flex-1 rounded border border-ink-700 bg-ink-850 px-1.5 py-1 text-[11px] text-ink-200 outline-none focus:border-gold-500/60"
+                                          />
+                                          <button
+                                            onClick={() =>
+                                              setEditingTarget({ moveIdx: i, altIccs: a.iccs, k })
+                                            }
+                                            title={`变招第 ${k + 1} 手棋盘标注`}
+                                            className={`shrink-0 rounded px-1 text-[11px] transition-colors ${
+                                              (branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0
+                                                ? "font-medium text-emerald-600"
+                                                : "text-ink-400 hover:text-ink-200"
+                                            }`}
+                                          >
+                                            📌
+                                            {(branchAnnotations[`${i}:${a.iccs}:${k}`]?.length ?? 0) > 0
+                                              ? branchAnnotations[`${i}:${a.iccs}:${k}`]!.length
+                                              : ""}
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </Fragment>
+                                    );
+                                  })}
                                 </>
                               )}
                               {/* 主线走子行 */}

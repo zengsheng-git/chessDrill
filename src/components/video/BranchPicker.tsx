@@ -132,7 +132,7 @@ export default function BranchPicker({
 
         <div className="flex shrink-0 gap-2">
           <button
-            onClick={() => onChange({ picks: {}, lineLens: {}, altComments: {}, previewComments: {} })}
+            onClick={() => onChange({ picks: {}, lineLens: {}, altComments: {}, previewComments: {}, reviewComments: {} })}
             className="flex-1 rounded-lg border border-ink-600 bg-ink-800 px-3 py-1.5 text-sm text-ink-200 hover:bg-ink-850"
           >
             全不选

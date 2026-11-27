@@ -120,6 +120,26 @@ fn to_scene_annotations(dtos: &[crate::video::AnnotationDto]) -> Vec<SceneAnnota
         .collect()
 }
 
+// 预览画面标注: 主线箭头(绿) + 各变招首手箭头(红), 用于走主线前的预览卡与回看段每次回到的预览画面
+fn fork_annotations(mv: &crate::video::VideoMoveStep) -> Vec<SceneAnnotation> {
+    let mut annotations = vec![SceneAnnotation {
+        kind: AnnotationKind::Arrow,
+        from: parse_point(&mv.iccs[0..2]).expect("主线 iccs 起点"),
+        to: Some(parse_point(&mv.iccs[2..4]).expect("主线 iccs 落点")),
+        color: AnnotationColor::Green,
+    }];
+    annotations.extend(mv.branches.iter().filter_map(|b| {
+        let first = b.moves.first()?;
+        Some(SceneAnnotation {
+            kind: AnnotationKind::Arrow,
+            from: parse_point(&first.iccs[0..2])?,
+            to: Some(parse_point(&first.iccs[2..4])?),
+            color: AnnotationColor::Red,
+        })
+    }));
+    annotations
+}
+
 // 走子数据 → 场景序列(开场卡 + 走子 × N + 结尾卡)
 fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
     if params.moves.is_empty() {
@@ -162,27 +182,13 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
             let preview_sub = mv.branch_preview_comment.trim().to_string();
             let preview_sub = if preview_sub.is_empty() {
                 format!(
-                    "主线走 {}. {} 另有变招 {}. 我们先看变招, 再走主线。",
+                    "主线走 {}。{} 另有变招 {}。我们先看变招, 再走主线。",
                     mv.notation, mover_txt_b, alts.join("、")
                 )
             } else {
                 preview_sub
             };
-            let mut annotations = vec![SceneAnnotation {
-                kind: AnnotationKind::Arrow,
-                from: parse_point(&mv.iccs[0..2]).expect("主线 iccs 起点"),
-                to: Some(parse_point(&mv.iccs[2..4]).expect("主线 iccs 落点")),
-                color: AnnotationColor::Green,
-            }];
-            annotations.extend(mv.branches.iter().filter_map(|b| {
-                let first = b.moves.first()?;
-                Some(SceneAnnotation {
-                    kind: AnnotationKind::Arrow,
-                    from: parse_point(&first.iccs[0..2])?,
-                    to: Some(parse_point(&first.iccs[2..4])?),
-                    color: AnnotationColor::Red,
-                })
-            }));
+            let annotations = fork_annotations(mv);
             scenes.push(FrameScene {
                 board_before: before,
                 board_after: before,
@@ -221,25 +227,48 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
         });
 
         // 变招逐手演示(不进入主线叙事, 统一追加到片尾"变招回看"段): 青色标记, 解说词逐手自定义(空 = 自动模板)
+        // 每个变招开讲前都先回到预览画面(分叉局面 + 主线/变招箭头), 观众看完一个变招回到分叉处再看下一个
         if !mv.branches.is_empty() {
             let mover_txt_b = if mv.side == "black" { "黑方" } else { "红方" };
-            for b in &mv.branches {
+            let picked = mv.branches.len();
+            for (bi, b) in mv.branches.iter().enumerate() {
+                // 回到预览画面; 解说词优先用户自定义, 留空自动衔接: 首个变招交代主线着法, 之后"看完 X, 再看 Y"
+                let next_txt = b.moves.first().map(|m| m.notation.as_str()).unwrap_or("");
+                let custom_sub = mv.branch_review_comments.get(bi).map(|s| s.trim()).unwrap_or("");
+                let back_sub = if !custom_sub.is_empty() {
+                    custom_sub.to_string()
+                } else if bi == 0 {
+                    if picked == 1 {
+                        format!("主线走 {}。下面回看变招 {}。", mv.notation, next_txt)
+                    } else {
+                        format!("主线走 {}。下面逐个回看变招, 先看 {}。", mv.notation, next_txt)
+                    }
+                } else {
+                    let prev_txt =
+                        mv.branches[bi - 1].moves.first().map(|m| m.notation.as_str()).unwrap_or("");
+                    format!("看完 {}。回到分叉局面, 再看变招 {}。", prev_txt, next_txt)
+                };
+                branch_review_scenes.push(FrameScene {
+                    board_before: before,
+                    board_after: before,
+                    move_iccs: None,
+                    title: params.title.trim().to_string(),
+                    headline: params.subtitle.trim().to_string(),
+                    current_move: Some(format!("第 {} 手 · 主线与变招对比", i + 1)),
+                    info_lines: vec![],
+                    subtitle: back_sub.clone(),
+                    subtitles: split_subtitle(&back_sub, SUBTITLE_MAX_CHARS),
+                    check_pos: None,
+                    annotations: fork_annotations(mv),
+                    cyan_marks: false,
+                });
                 let total = b.moves.len();
                 let mut cur = before;
                 for (k, m) in b.moves.iter().enumerate() {
                     let after_m = apply_iccs(&cur, &m.iccs);
-                    let custom = b.comments.get(k).map(|s| s.trim()).unwrap_or("");
-                    let demo_sub = if !custom.is_empty() {
-                        custom.to_string()
-                    } else if total == 1 {
-                        format!("回看变招: 若当时走 {}。", m.notation)
-                    } else if k == 0 {
-                        format!("回看变招: 若当时走 {}。", m.notation)
-                    } else if k == total - 1 {
-                        format!("变招最后 {}。回看结束。", m.notation)
-                    } else {
-                        format!("变招接着 {}。", m.notation)
-                    };
+                    // 解说词与主线一致: 只用用户输入, 留空则该手无字幕无配音(total 变量不再参与模板)
+                    let _ = total;
+                    let demo_sub = b.comments.get(k).map(|s| s.trim()).unwrap_or("").to_string();
                     branch_review_scenes.push(FrameScene {
                         board_before: cur,
                         board_after: after_m,
@@ -264,7 +293,7 @@ fn build_scenes(params: &GenerateParams) -> Result<Vec<FrameScene>, String> {
         }
     }
 
-    // 片尾变招回看段: 主线全部讲完之后、结尾卡之前, 依次回放各分歧点的变招
+    // 片尾变招回看段: 主线全部讲完之后、结尾卡之前, 依次回放各分歧点的变招(最后一个变招讲完直接进结尾卡)
     scenes.extend(branch_review_scenes);
 
     // 结尾卡: 终局局面
@@ -518,6 +547,7 @@ mod tests {
                     annotations: vec![],
                     branches: vec![],
                     branch_preview_comment: String::new(),
+                    branch_review_comments: vec![],
                 },
             ],
             narration: vec!["红方跳马".into()],
@@ -535,6 +565,61 @@ mod tests {
         assert!(scenes[1].check_pos.is_none());
         assert_eq!(scenes[1].subtitle, "红方跳马");
         assert_eq!(scenes[2].info_lines, vec!["共 1 手".to_string()]);
+    }
+
+    // 变招回看段: 每个变招演示前都回到预览画面(分叉局面卡), 演示完最后一个不回
+    #[test]
+    fn test_branch_review_returns_to_preview() {
+        let mk_branch = |iccs: &str, notation: &str| crate::video::BranchDemoDto {
+            moves: vec![crate::video::BranchMoveDto { iccs: iccs.into(), notation: notation.into() }],
+            comments: vec![String::new()],
+            annotations: vec![],
+        };
+        let params = GenerateParams {
+            title: "测试对局".into(),
+            subtitle: String::new(),
+            moves: vec![crate::video::VideoMoveStep {
+                fen_before: "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1".into(),
+                fen_after: "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKAB1R b - - 0 1".into(),
+                iccs: "h0h2".into(),
+                notation: "马二进三".into(),
+                side: "red".into(),
+                check: false,
+                annotations: vec![],
+                branches: vec![mk_branch("b2e2", "炮五平四"), mk_branch("b2e6", "炮五进四")],
+                branch_preview_comment: String::new(),
+                // bi=0 自定义衔接词; bi=1 留空用自动
+                branch_review_comments: vec!["自定义衔接词".into(), String::new()],
+            }],
+            narration: vec!["红方跳马".into()],
+            intro_narration: String::new(),
+            outro_narration: String::new(),
+            voice: "zh-CN-YunxiNeural".into(),
+            rate: 0,
+            voice_enabled: false,
+            ends_mate: false,
+        };
+        let scenes = build_scenes(&params).unwrap();
+        // 开场 + 走主线前预览卡 + 主线 + (回看预览 + 变招演示) × 2 + 结尾 = 8
+        assert_eq!(scenes.len(), 8);
+        assert_eq!(scenes[1].current_move.as_deref(), Some("第 1 手 · 主线与变招对比"));
+        assert_eq!(scenes[1].annotations.len(), 3); // 主线绿箭头 + 两个变招红箭头
+        // 预览卡回退解说词只列勾选的变招(此处两个全勾)
+        assert_eq!(
+            scenes[1].subtitle,
+            "主线走 马二进三。红方 另有变招 炮五平四、炮五进四。我们先看变招, 再走主线。"
+        );
+        // 变招 1 演示前回到预览画面, 解说词用自定义衔接词
+        assert!(scenes[3].move_iccs.is_none());
+        assert_eq!(scenes[3].current_move.as_deref(), Some("第 1 手 · 主线与变招对比"));
+        assert_eq!(scenes[3].subtitle, "自定义衔接词");
+        assert_eq!(scenes[4].current_move.as_deref(), Some("回看变招 · 红方 炮五平四"));
+        // 变招 2 演示前再次回到预览画面, 留空用自动衔接词
+        assert!(scenes[5].move_iccs.is_none());
+        assert_eq!(scenes[5].subtitle, "看完 炮五平四。回到分叉局面, 再看变招 炮五进四。");
+        assert_eq!(scenes[6].current_move.as_deref(), Some("回看变招 · 红方 炮五进四"));
+        // 最后一个变招讲完直接进结尾卡, 不再回预览画面
+        assert_eq!(scenes[7].info_lines, vec!["共 1 手".to_string()]);
     }
 
     // 时长规则: 配音决定时长; 无字幕走子取短卡; 有字幕无配音按字数估
