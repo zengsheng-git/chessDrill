@@ -665,6 +665,10 @@ export default function VideoExportDialog({
         (editingTarget.altIccs === null ? (
           <AnnotationEditor
             fenAfter={source.moves[editingTarget.moveIdx]!.fen_after}
+            move={{
+              notation: source.moves[editingTarget.moveIdx]!.notation,
+              iccs: source.moves[editingTarget.moveIdx]!.iccs,
+            }}
             annotations={annotations[editingTarget.moveIdx] ?? []}
             onChange={(list) =>
               setAnnotations((arr) => arr.map((v, j) => (j === editingTarget.moveIdx ? list : v)))
@@ -677,11 +681,12 @@ export default function VideoExportDialog({
             const alt = source.branchPoints
               .find((p) => p.moveIndex === editingTarget.moveIdx)
               ?.alternatives.find((a) => a.iccs === editingTarget.altIccs);
-            const fenAfter = alt?.line[editingTarget.k]?.fen_after;
-            if (!fenAfter) return null;
+            const step = alt?.line[editingTarget.k];
+            if (!step) return null;
             return (
               <AnnotationEditor
-                fenAfter={fenAfter}
+                fenAfter={step.fen_after}
+                move={{ notation: step.notation, iccs: step.iccs }}
                 annotations={branchAnnotations[key] ?? []}
                 onChange={(list) =>
                   setBranchAnnotations((map) => ({ ...map, [key]: list }))

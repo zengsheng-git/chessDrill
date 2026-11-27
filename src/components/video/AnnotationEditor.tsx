@@ -25,11 +25,14 @@ function labelOf(a: VideoAnnotation): string {
 /** 标注编辑浮层: mini 棋盘点选(点 1 下加圈注, 箭头模式点 2 下), 列表可删 */
 export default function AnnotationEditor({
   fenAfter,
+  move,
   annotations,
   onChange,
   onClose,
 }: {
   fenAfter: string;
+  /** 当前手的招法与着法(ICCS), 标题展示 + 棋盘走子标记; 预览卡等无走子场景为 null */
+  move?: { notation: string; iccs: string } | null;
   annotations: VideoAnnotation[];
   onChange: (list: VideoAnnotation[]) => void;
   onClose: () => void;
@@ -90,7 +93,10 @@ export default function AnnotationEditor({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between">
-          <span className="text-sm font-bold text-gold-300">棋盘标注</span>
+          <span className="text-sm font-bold text-gold-300">
+            棋盘标注
+            {move && <span className="ml-2 text-xs font-medium text-ink-100">· {move.notation}</span>}
+          </span>
           <button
             onClick={onClose}
             title="完成并关闭"
@@ -149,12 +155,12 @@ export default function AnnotationEditor({
               : "在棋盘上点起点（棋子中心）"}
         </div>
 
-        {/* mini 棋盘(该手走完后的局面) */}
+        {/* mini 棋盘(该手走完后的局面, 带本手走子标记) */}
         <div className="shrink-0 overflow-hidden rounded-lg border border-ink-700">
           <Board
             fen={fenAfter}
             flipped={false}
-            lastMove={null}
+            lastMove={move ? { from: iccsToPos(move.iccs.slice(0, 2)), to: iccsToPos(move.iccs.slice(2, 4)) } : null}
             selected={arrowFrom}
             targets={[]}
             annotations={toBoardAnnotations(annotations)}
